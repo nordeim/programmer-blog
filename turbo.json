@@ -1,0 +1,93 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "globalDependencies": ["tsconfig.base.json", ".env.local", "pnpm-workspace.yaml"],
+  "globalEnv": [
+    "NODE_ENV",
+    "DATABASE_PATH",
+    "BETTER_AUTH_SECRET",
+    "BETTER_AUTH_URL",
+    "RESEND_API_KEY",
+    "RESEND_FROM",
+    "SIGNED_TOKEN_SECRET",
+    "NEXT_PUBLIC_SITE_URL",
+    "NEXT_PUBLIC_GITHUB_REPO",
+    "NEXT_PUBLIC_AUTHOR_EMAIL",
+    "GITHUB_STATS_FALLBACK_STARS",
+    "GITHUB_STATS_FALLBACK_FORKS",
+    "CRON_SECRET"
+  ],
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"],
+      "inputs": [
+        "src/**",
+        "content/**",
+        "public/**",
+        "next.config.ts",
+        "tsconfig.json",
+        "package.json"
+      ]
+    },
+    "start": {
+      "cache": false,
+      "persistent": true
+    },
+    "check-types": {
+      "outputs": [],
+      "inputs": ["src/**", "tsconfig.json", "package.json", "tsconfig.base.json"]
+    },
+    "lint": {
+      "outputs": [],
+      "inputs": [
+        "src/**",
+        "test/**",
+        "eslint.config.mjs",
+        "package.json"
+      ]
+    },
+    "lint:fix": {
+      "cache": false,
+      "outputs": []
+    },
+    "test": {
+      "outputs": ["coverage/**"],
+      "inputs": [
+        "src/**",
+        "vitest.config.ts",
+        "vitest.setup.ts",
+        "package.json"
+      ]
+    },
+    "test:watch": {
+      "cache": false,
+      "persistent": true
+    },
+    "test:coverage": {
+      "outputs": ["coverage/**"],
+      "inputs": ["src/**", "vitest.config.ts", "package.json"]
+    },
+    "db:generate": {
+      "cache": false,
+      "outputs": ["migrations/**"]
+    },
+    "db:migrate": {
+      "cache": false
+    },
+    "db:seed": {
+      "cache": false
+    },
+    "db:studio": {
+      "cache": false,
+      "persistent": true
+    },
+    "clean": {
+      "cache": false
+    }
+  }
+}

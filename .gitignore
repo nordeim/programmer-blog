@@ -1,16 +1,64 @@
+# Dependencies
 node_modules/
+.pnp/
+.pnp.js
+
+# Build outputs
 .next/
-venv/
-.venv/
-.venv
-vendor/
-bak.git/
-plan/
-backup/
-nohup.out
-.windsurfrules
-upload/
-.agent
-.gemini
-.claude
-.agents
+.turbo/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# Test outputs
+coverage/
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+apps/web/devlog.db
+apps/web/devlog.db-journal
+apps/web/devlog.db-wal
+apps/web/devlog.db-shm
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vercel
+.vercel
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Cache
+.cache/
+.turbo/
+.next/cache/
+
+# Lockfiles (keep pnpm-lock; ignore others)
+package-lock.json
+yarn.lock
+
+# Skill folder is read-only reference, never modify
+skills/
+
+# The mockup is the source of truth — do not modify
+# (kept intentionally tracked, not ignored)

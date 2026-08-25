@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "ES2022"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": false,
+    "useDefineForClassFields": true,
+    "allowJs": false,
+    "checkJs": false,
+    "declaration": false,
+    "sourceMap": true,
+    "incremental": true,
+    "composite": false,
+    "paths": {
+      "@devlog/db": ["./packages/db/src/index.ts"],
+      "@devlog/db/*": ["./packages/db/src/*"],
+      "@devlog/auth": ["./packages/auth/src/index.ts"],
+      "@devlog/auth/*": ["./packages/auth/src/*"],
+      "@devlog/email": ["./packages/email/src/index.ts"],
+      "@devlog/email/*": ["./packages/email/src/*"],
+      "@devlog/types": ["./packages/types/src/index.ts"],
+      "@devlog/types/*": ["./packages/types/src/*"],
+      "@devlog/config": ["./packages/config/index.ts"],
+      "@devlog/config/*": ["./packages/config/*"]
+    }
+  },
+  "exclude": ["node_modules", "dist", ".next", "coverage", "skills"]
+}
