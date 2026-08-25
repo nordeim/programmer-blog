@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@devlog/config/tsconfig/nextjs.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@devlog/db": ["../../packages/db/src/index.ts"],
+      "@devlog/db/*": ["../../packages/db/src/*"],
+      "@devlog/auth": ["../../packages/auth/src/index.ts"],
+      "@devlog/auth/*": ["../../packages/auth/src/*"],
+      "@devlog/email": ["../../packages/email/src/index.ts"],
+      "@devlog/email/*": ["../../packages/email/src/*"],
+      "@devlog/types": ["../../packages/types/src/index.ts"],
+      "@devlog/types/*": ["../../packages/types/src/*"]
+    },
+    "plugins": [{ "name": "next" }],
+    "noEmit": true,
+    "incremental": true
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules", ".next", "dist", "coverage"]
+}
