@@ -1,0 +1,32 @@
+{
+  "name": "@devlog/email",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./send": "./src/send.ts",
+    "./templates/*": "./src/templates/*"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@devlog/types": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-email": "^3.0.0",
+    "resend": "^4.0.0"
+  },
+  "devDependencies": {
+    "@devlog/config": "workspace:*",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^2.1.0"
+  }
+}
