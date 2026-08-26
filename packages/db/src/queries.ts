@@ -5,7 +5,7 @@
 import { and, desc, eq, isNotNull, isNull, like, or, sql } from 'drizzle-orm';
 
 import { db } from './client';
-import { comments, posts, siteSettings, subscribers, tags, users } from './schema';
+import { comments, posts, postsToTags, siteSettings, subscribers, tags, users } from './schema';
 
 // ── Posts ──────────────────────────────────────────────────────────────────
 export async function getRecentPosts(limit = 3) {
@@ -22,30 +22,149 @@ export async function getPostBySlug(slug: string) {
   return db.select().from(posts).where(eq(posts.slug, slug)).limit(1).get();
 }
 
-export async function getArchivePosts(page = 1, pageSize = 10, tagFilter?: string) {
-  const offset = (page - 1) * pageSize;
-  const query = db
+/**
+ * Phase 5 refactor: archive listing with proper tag filtering and search.
+ *
+ * - `tagSlug` filters by joining posts_to_tags + tags (case-insensitive
+ *   tag slug match).
+ * - `query` is a substring LIKE match against title and excerpt.
+ * - Both filters compose via AND.
+ * - Returns full Post rows; the caller maps them into ArchiveItemData.
+ *
+ * Returns `[]` on empty DB; never throws on empty filter inputs.
+ */
+export async function getArchivePosts(
+  page = 1,
+  pageSize = 10,
+  tagSlug?: string,
+  query?: string,
+) {
+  const offset = Math.max(0, (page - 1) * pageSize);
+  const conditions = [eq(posts.status, 'published')];
+  if (query && query.trim().length > 0) {
+    const pattern = `%${query.trim()}%`;
+    conditions.push(or(like(posts.title, pattern), like(posts.excerpt, pattern))!);
+  }
+
+  if (tagSlug && tagSlug.trim().length > 0) {
+    const rows = db
+      .select({
+        id: posts.id,
+        slug: posts.slug,
+        title: posts.title,
+        excerpt: posts.excerpt,
+        contentMdx: posts.contentMdx,
+        coverImageUrl: posts.coverImageUrl,
+        publishedAt: posts.publishedAt,
+        updatedAt: posts.updatedAt,
+        readingTimeMinutes: posts.readingTimeMinutes,
+        authorId: posts.authorId,
+        status: posts.status,
+        createdAt: posts.createdAt,
+      })
+      .from(posts)
+      .innerJoin(postsToTags, eq(postsToTags.postId, posts.id))
+      .innerJoin(tags, eq(tags.id, postsToTags.tagId))
+      .where(and(eq(tags.slug, tagSlug.toLowerCase()), ...conditions))
+      .orderBy(desc(posts.publishedAt))
+      .limit(pageSize)
+      .offset(offset)
+      .all();
+    return rows;
+  }
+
+  return db
     .select()
     .from(posts)
-    .where(eq(posts.status, 'published'))
+    .where(and(...conditions))
     .orderBy(desc(posts.publishedAt))
     .limit(pageSize)
-    .offset(offset);
-  if (tagFilter) {
-    // For Phase 1, we don't apply the tag filter at SQL level — return all
-    // and filter in JS. Phase 5 of MEP refactors this to use postsToTags join.
-    void tagFilter;
-  }
-  return query.all();
+    .offset(offset)
+    .all();
 }
 
-export async function getArchiveCount() {
+export async function getArchiveCount(tagSlug?: string, query?: string) {
+  const conditions = [eq(posts.status, 'published')];
+  if (query && query.trim().length > 0) {
+    const pattern = `%${query.trim()}%`;
+    conditions.push(or(like(posts.title, pattern), like(posts.excerpt, pattern))!);
+  }
+
+  if (tagSlug && tagSlug.trim().length > 0) {
+    const result = db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(posts)
+      .innerJoin(postsToTags, eq(postsToTags.postId, posts.id))
+      .innerJoin(tags, eq(tags.id, postsToTags.tagId))
+      .where(and(eq(tags.slug, tagSlug.toLowerCase()), ...conditions))
+      .get();
+    return result?.count ?? 0;
+  }
+
   const result = db
     .select({ count: sql<number>`count(*)::int` })
     .from(posts)
-    .where(eq(posts.status, 'published'))
+    .where(and(...conditions))
     .get();
   return result?.count ?? 0;
+}
+
+/**
+ * Returns the previous and next published posts around `slug`,
+ * ordered by `publishedAt` descending. Used by the post page
+ * to render prev/next navigation. Either or both may be `null`.
+ */
+export async function getAdjacentPosts(slug: string) {
+  const current = await db.select().from(posts).where(eq(posts.slug, slug)).limit(1).get();
+  if (!current) return { previous: null, next: null };
+
+  const next =
+    db
+      .select({ slug: posts.slug, title: posts.title })
+      .from(posts)
+      .where(
+        and(
+          eq(posts.status, 'published'),
+          isNotNull(posts.publishedAt),
+          sql`${posts.publishedAt} > ${current.publishedAt ?? 0}`,
+        ),
+      )
+      .orderBy(posts.publishedAt)
+      .limit(1)
+      .get() ?? null;
+
+  const previous =
+    db
+      .select({ slug: posts.slug, title: posts.title })
+      .from(posts)
+      .where(
+        and(
+          eq(posts.status, 'published'),
+          isNotNull(posts.publishedAt),
+          sql`${posts.publishedAt} < ${current.publishedAt ?? 0}`,
+          sql`${posts.slug} != ${slug}`,
+        ),
+      )
+      .orderBy(desc(posts.publishedAt))
+      .limit(1)
+      .get() ?? null;
+
+  return { previous, next };
+}
+
+/**
+ * Returns the tags associated with a given post (by id), as
+ * `{ slug, name }`. Empty array if the post has no tags or
+ * doesn't exist.
+ */
+export async function getTagsForPost(postId: string) {
+  return db
+    .select({ slug: tags.slug, name: tags.name })
+    .from(tags)
+    .innerJoin(postsToTags, eq(postsToTags.tagId, tags.id))
+    .where(eq(postsToTags.postId, postId))
+    .orderBy(tags.name)
+    .all();
 }
 
 export async function getAllPosts() {
