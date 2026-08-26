@@ -19,6 +19,10 @@ export default defineConfig({
       '@devlog/email/*': resolve(rootDir, '../../packages/email/src/*'),
       '@devlog/types': resolve(rootDir, '../../packages/types/src/index.ts'),
       '@devlog/types/*': resolve(rootDir, '../../packages/types/src/*'),
+      // `server-only` is a Next.js package that throws when imported on the
+      // client. In vitest (jsdom), we treat it as an empty module so tests
+      // can import server-only files without erroring.
+      'server-only': resolve(rootDir, './src/__mocks__/server-only.ts'),
     },
   },
   test: {
