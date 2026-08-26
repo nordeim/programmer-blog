@@ -3,9 +3,14 @@
   "extends": "@devlog/config/tsconfig/react-library.json",
   "compilerOptions": {
     "baseUrl": ".",
-    "outDir": "./dist",
-    "rootDir": "./src",
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "rootDir": null,
     "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
     "paths": {
       "@devlog/types": ["../types/src/index.ts"]
     }
