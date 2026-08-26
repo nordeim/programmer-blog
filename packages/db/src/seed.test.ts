@@ -7,9 +7,10 @@
  * `pnpm db:seed` script which we ran manually in Phase 2.
  */
 import Database from 'better-sqlite3';
-import { describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { describe, expect, it } from 'vitest';
+
 import * as schema from './schema';
 
 describe('drizzle schema sanity', () => {

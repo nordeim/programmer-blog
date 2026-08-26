@@ -3,8 +3,9 @@
  * Each is a thin wrapper returning typed results. Server-side only.
  */
 import { and, desc, eq, isNotNull, isNull, like, or, sql } from 'drizzle-orm';
+
 import { db } from './client';
-import { comments, posts, postsToTags, siteSettings, subscribers, tags, users } from './schema';
+import { comments, posts, siteSettings, subscribers, tags, users } from './schema';
 
 // ── Posts ──────────────────────────────────────────────────────────────────
 export async function getRecentPosts(limit = 3) {
@@ -23,7 +24,7 @@ export async function getPostBySlug(slug: string) {
 
 export async function getArchivePosts(page = 1, pageSize = 10, tagFilter?: string) {
   const offset = (page - 1) * pageSize;
-  let query = db
+  const query = db
     .select()
     .from(posts)
     .where(eq(posts.status, 'published'))

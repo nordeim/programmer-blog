@@ -9,6 +9,7 @@
  * Exposes `runSeed()` — called by apps/web/src/scripts/seed.ts via `pnpm db:seed`.
  */
 import { desc, eq } from 'drizzle-orm';
+
 import { db } from './client';
 import { comments, posts, postsToTags, siteSettings, subscribers, tags, users } from './schema';
 
