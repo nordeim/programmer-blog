@@ -21,11 +21,21 @@ export const dynamic = 'force-static';
 export const revalidate = 3600; // 1 hour
 
 export async function GET() {
-  const [posts, settings, author] = await Promise.all([
-    getPostsForRss(20),
-    getSiteSettings(),
-    getAuthor(),
-  ]);
+  // Wrap in try/catch so the build (which prerenders this route) doesn't
+  // fail when the DB isn't migrated yet. At runtime, a missing DB will
+  // produce an empty RSS feed (just the channel metadata).
+  let posts: { slug: string; title: string; excerpt: string; publishedAt: Date | null; authorId: string }[] = [];
+  let settings: Awaited<ReturnType<typeof getSiteSettings>> = undefined;
+  let author: Awaited<ReturnType<typeof getAuthor>> = undefined;
+  try {
+    [posts, settings, author] = await Promise.all([
+      getPostsForRss(20),
+      getSiteSettings(),
+      getAuthor(),
+    ]);
+  } catch (e) {
+    console.warn('[rss] DB unavailable, generating minimal feed', e);
+  }
 
   const channel = channelFromSettings(
     settings,

@@ -22,8 +22,13 @@ interface RouteParams {
 }
 
 export async function generateStaticParams() {
-  const all = await listSnippets();
-  return all.map((s) => ({ slug: s.slug }));
+  try {
+    const all = await listSnippets();
+    return all.map((s) => ({ slug: s.slug }));
+  } catch (e) {
+    console.warn('[snippets/generateStaticParams] content unavailable, skipping prerender', e);
+    return [];
+  }
 }
 
 export async function generateMetadata({

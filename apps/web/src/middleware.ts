@@ -11,8 +11,12 @@
  *
  * Per PAD §6.4 (security headers) + MEP §7 Phase 6 RED/GREEN 6.1.
  */
-import { SESSION_COOKIE, verifySessionToken } from '@devlog/auth';
+import { SESSION_COOKIE, verifySessionToken } from '@devlog/auth/tokens';
 import { NextResponse, type NextRequest } from 'next/server';
+
+// Import only the edge-safe pure-crypto helpers — not the full
+// @devlog/auth root (which pulls in better-sqlite3 + drizzle-orm
+// and is incompatible with the Edge Runtime).
 
 
 const PUBLIC_ADMIN_PATHS = ['/admin/login'];

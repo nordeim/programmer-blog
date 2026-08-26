@@ -1,101 +1,39 @@
 /**
  * @devlog/auth — Phase 6 implementation.
  *
- * A pragmatic HMAC-signed session token implementation. The seed sets
- * `passwordHash='dev-only-placeholder-replace-in-phase-6'`, so for v1
- * we accept any password that matches the seeded author's email. A
- * follow-up ticket (PAD §4.2 ADR-006) swaps this for Better Auth's
- * real password hash + bcrypt.
+ * Re-exports the pure-crypto helpers from `./tokens` (edge-safe)
+ * and adds the DB-dependent session functions (signIn, signOut,
+ * getSession, requireAuthor). The DB-dependent code lives here so
+ * the edge middleware can import from `@devlog/auth/tokens` and
+ * avoid pulling in better-sqlite3 + drizzle-orm.
  *
- * Exports:
- *   - `signIn(email, password)`  → sets a session cookie via Set-Cookie
- *   - `signOut()`                 → clears the session cookie
- *   - `getSession()`              → reads the cookie, returns the user or null
- *   - `requireAuthor()`           → getSession() + role check, throws otherwise
+ * Cookie name: `devlog_session`. Format: `<userId>.<hmac>`. The
+ * HMAC is SHA-256 of `userId` keyed by `BETTER_AUTH_SECRET`. Tokens
+ * are valid for 30 days.
  *
- * Cookie name: `devlog_session`. Format: `<userId>.<hmac>`. The HMAC
- * is SHA-256 of `userId` keyed by `BETTER_AUTH_SECRET`. Tokens are
- * valid for 30 days.
- *
- * This file is server-only.
+ * Server-only.
  */
 import 'server-only';
-import { createHmac, timingSafeEqual } from 'node:crypto';
-
 import { db, eq, schema } from '@devlog/db';
 
-export const SESSION_COOKIE = 'devlog_session';
-const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
-const TOKEN_SEPARATOR = '.';
+// Import + re-export the pure-crypto helpers from tokens.ts (edge-safe).
+import {
+  SESSION_COOKIE,
+  SESSION_TTL,
+  createSessionToken,
+  signToken,
+  verifySessionToken,
+  verifyToken,
+} from './tokens';
 
-function getSecret(): string {
-  const s = process.env.BETTER_AUTH_SECRET;
-  if (!s || s.length < 32) {
-    // Dev fallback: deterministic but obviously-fake. Prod would throw.
-    return 'dev-only-secret-replace-in-production-xxxxxxxxxxxxxx';
-  }
-  return s;
-}
-
-function sign(userId: string): string {
-  return createHmac('sha256', getSecret()).update(userId).digest('hex');
-}
-
-/**
- * Returns `<userId>.<hmac>` — the value stored in the session cookie.
- */
-export function createSessionToken(userId: string): string {
-  return `${userId}${TOKEN_SEPARATOR}${sign(userId)}`;
-}
-
-/**
- * Verifies a session token's HMAC. Returns the userId on success,
- * `null` on failure (bad format, bad signature, expired).
- */
-export function verifySessionToken(token: string): string | null {
-  const sep = token.indexOf(TOKEN_SEPARATOR);
-  if (sep < 0) return null;
-  const userId = token.slice(0, sep);
-  const receivedHmac = token.slice(sep + 1);
-  if (!userId || !receivedHmac) return null;
-  const expectedHmac = sign(userId);
-  try {
-    const a = Buffer.from(receivedHmac, 'hex');
-    const b = Buffer.from(expectedHmac, 'hex');
-    if (a.length !== b.length) return null;
-    if (!timingSafeEqual(a, b)) return null;
-    return userId;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Sign a transaction token (e.g. for subscribe-confirm / unsubscribe
- * links). Token format: `<payload>.<hmac>`. Used by /api/confirm,
- * /unsubscribe, /preferences.
- */
-export function signToken(payload: string): string {
-  const mac = createHmac('sha256', getSecret()).update(payload).digest('hex');
-  return `${payload}${TOKEN_SEPARATOR}${mac}`;
-}
-
-export function verifyToken(token: string, expectedPayload: string): boolean {
-  const sep = token.indexOf(TOKEN_SEPARATOR);
-  if (sep < 0) return false;
-  const payload = token.slice(0, sep);
-  const receivedMac = token.slice(sep + 1);
-  if (payload !== expectedPayload) return false;
-  const expectedMac = createHmac('sha256', getSecret()).update(payload).digest('hex');
-  try {
-    const a = Buffer.from(receivedMac, 'hex');
-    const b = Buffer.from(expectedMac, 'hex');
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(a, b);
-  } catch {
-    return false;
-  }
-}
+export {
+  SESSION_COOKIE,
+  SESSION_TTL,
+  createSessionToken,
+  signToken,
+  verifySessionToken,
+  verifyToken,
+};
 
 export interface SessionUser {
   id: string;
@@ -139,7 +77,7 @@ export async function signIn(
     }
     const token = createSessionToken(user.id);
     setCookie(SESSION_COOKIE, token, {
-      maxAge: SESSION_TTL_SECONDS,
+      maxAge: SESSION_TTL,
       httpOnly: true,
       sameSite: 'lax',
       path: '/',
@@ -171,8 +109,8 @@ export function signOut(
 }
 
 /**
- * Reads the session cookie from a Request and returns the user, or
- * `null` when not signed in or session is invalid.
+ * Reads the session cookie value and returns the user, or `null`
+ * when not signed in or session is invalid.
  */
 export async function getSession(cookieValue: string | undefined | null): Promise<SessionUser | null> {
   if (!cookieValue) return null;
@@ -199,8 +137,6 @@ export async function getSession(cookieValue: string | undefined | null): Promis
  * the cookie jar). Server-only.
  */
 export async function getSessionFromCookies(): Promise<SessionUser | null> {
-  // Apps/web imports this; we read process.env 'COOKIE' or similar.
-  // For tests, we accept a direct cookie value via a global.
   const cookieHeader =
     (globalThis as { __devlog_test_cookies?: Record<string, string> }).__devlog_test_cookies?.[
       SESSION_COOKIE
@@ -234,5 +170,3 @@ export class AuthorRequiredError extends Error {
 export function isAuthorRequiredError(e: unknown): boolean {
   return e instanceof AuthorRequiredError;
 }
-
-export const SESSION_TTL = SESSION_TTL_SECONDS;

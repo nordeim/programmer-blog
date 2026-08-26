@@ -44,10 +44,19 @@ function urlEntry(loc: string, lastmod?: Date | string | null, changefreq = 'wee
 
 export async function GET() {
   const siteUrl = env.NEXT_PUBLIC_SITE_URL;
-  const [posts, snippets] = await Promise.all([
-    getArchivePosts(1, 1000), // all published posts
-    listSnippets(),
-  ]);
+  // Wrap in try/catch so the build (which prerenders this route) doesn't
+  // fail when the DB isn't migrated yet. At runtime, a missing DB will
+  // produce an empty sitemap (just the top-level routes).
+  let posts: { slug: string; publishedAt?: Date | null }[] = [];
+  let snippets: { slug: string }[] = [];
+  try {
+    [posts, snippets] = await Promise.all([
+      getArchivePosts(1, 1000), // all published posts
+      listSnippets(),
+    ]);
+  } catch (e) {
+    console.warn('[sitemap] DB unavailable, generating minimal sitemap', e);
+  }
 
   const now = new Date();
   const urls: string[] = [

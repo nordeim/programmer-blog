@@ -58,9 +58,17 @@ export async function generateMetadata({
 }
 
 export async function generateStaticParams() {
-  const { getArchivePosts } = await import('@devlog/db');
-  const top = await getArchivePosts(1, 50);
-  return top.map((p) => ({ slug: p.slug }));
+  // During build the DB may not be migrated/seeded yet. Catch any
+  // error and return [] so the build succeeds; runtime requests
+  // will SSR the post on demand.
+  try {
+    const { getArchivePosts } = await import('@devlog/db');
+    const top = await getArchivePosts(1, 50);
+    return top.map((p) => ({ slug: p.slug }));
+  } catch (e) {
+    console.warn('[posts/generateStaticParams] DB unavailable, skipping prerender', e);
+    return [];
+  }
 }
 
 export default async function PostRoute({

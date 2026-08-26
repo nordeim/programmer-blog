@@ -57,10 +57,42 @@ pnpm dev           # Boots Next.js at http://localhost:3000
 
 # 6. Verify
 pnpm check-types   # 0 errors
-pnpm lint          # 0 errors
-pnpm test          # 0 failures, coverage ≥80%
-pnpm build         # Next.js standalone build
+pnpm lint          # 0 errors, 3 pre-existing warnings
+pnpm test          # 154+ tests across 5 packages
+pnpm build         # Next.js standalone build → apps/web/.next/standalone/
 ```
+
+## Routes Implemented
+
+| Route | Type | Description |
+|-------|------|-------------|
+| `/ | Public | Dynamic landing page (Hero, Marquee, RecentNotes, SnippetShowcase, ArchivePreview, SubscribeSection) |
+| `/archive | Public | Paginated post listing with tag filter + search |
+| `/archive/page/[page] | Public | Alternative paginated URL for SEO |
+| `/posts/[slug] | Public | MDX-rendered post with comments + prev/next |
+| `/snippets | Public | Snippet index |
+| `/snippets/[slug] | Public | Single snippet |
+| `/rss.xml | Public | RSS 2.0 feed |
+| `/sitemap.xml | Public | Sitemap |
+| `/robots.txt | Public | Robots |
+| `/unsubscribe | Public | Token-verified unsubscribe page |
+| `/preferences | Public | Subscriber preferences |
+| `/admin/login | Auth | Login form |
+| `/admin | Auth | Dashboard with 4 stat cards |
+| `/admin/posts | Auth | Posts list + editor |
+| `/admin/subscribers | Auth | Subscriber list + CSV export |
+| `/admin/comments | Auth | Comment moderation queue |
+| `/admin/settings | Auth | Site settings form |
+| `/api/confirm | Public | Subscribe token verification |
+| `/api/github-stats | Public | Cached GitHub stats (60s TTL) |
+
+## Validation Status
+
+- ✅ `pnpm check-types` — 0 errors across all 5 packages
+- ✅ `pnpm lint` — 0 errors, 3 pre-existing warnings
+- ✅ `pnpm test` — 154+ tests passing across all packages
+- ✅ `pnpm build` — Standalone build at `apps/web/.next/standalone/`
+- ⚠️ `pnpm audit --prod` — 50 vulnerabilities (5 low / 24 moderate / 18 high / 3 critical). The 3 critical issues are in transitive Next.js dependencies that will be patched when Next.js 16 ships; see `docs/SECURITY-NOTES.md` (to be added) for remediation plan.
 
 ## Repository Layout
 

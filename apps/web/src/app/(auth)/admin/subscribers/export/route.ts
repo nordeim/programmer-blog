@@ -13,6 +13,11 @@ import { cookies } from 'next/headers';
 import { isAuthorRequiredError, requireAuthor } from '@/lib/auth';
 import { db, schema } from '@/lib/db';
 
+// Force dynamic rendering — this route reads cookies and must run on
+// every request, never at build time.
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 function csvEscape(s: string | null | undefined): string {
   if (s === null || s === undefined) return '';
   if (/[",\n\r]/.test(s)) {

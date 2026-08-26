@@ -12,7 +12,7 @@
 import 'server-only';
 import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 
 export interface SnippetMeta {
   slug: string;
@@ -22,18 +22,17 @@ export interface SnippetMeta {
 }
 
 const CONTENT_DIR =
-  process.env.SNIPPETS_DIR ??
-  `${process.cwd()}/content/snippets`;
+  process.env.SNIPPETS_DIR ?? join(process.cwd(), 'content', 'snippets');
 
 let cached: SnippetMeta[] | null = null;
 
 export async function listSnippets(): Promise<SnippetMeta[]> {
   if (cached) return cached;
-  if (!existsSync(CONTENT_DIR)) {
+  if (!existsSync(/*turbopackIgnore: true*/ CONTENT_DIR)) {
     cached = [];
     return cached;
   }
-  const files = await readdir(CONTENT_DIR);
+  const files = await readdir(/*turbopackIgnore: true*/ CONTENT_DIR);
   const mdxFiles = files.filter((f) => f.endsWith('.mdx')).sort();
   const result: SnippetMeta[] = [];
   for (const file of mdxFiles) {
