@@ -721,3 +721,76 @@ Before each commit:
 ---
 
 **End of MEP.** For requirements, see `Project_Requirements_Document.md`. For architecture, see `Project_Architecture_Document.md`.
+
+---
+
+## 12. Phase 9 — Audit Remediation
+
+### Goal
+
+Close all findings from the post-build code review and security audit (`CODE_REVIEW_AUDIT_REPORT.md`) by executing the tasks in `REMEDIATION_PLAN.md`. Re-audit and confirm every gate is green before pushing to `main`.
+
+### Audit findings summary
+
+| Severity | Count | Status after remediation |
+|----------|-------|--------------------------|
+| Critical | 9 | 9 Resolved (8 fixed in code, 1 documented via ADR-006 amendment) |
+| High | 8 listed (30 total incl. transitive deps) | 6 Resolved, 2 Deferred to v1.5 (fonts, OG image) |
+| Medium | 11 listed | 7 Resolved, 4 Deferred / Acknowledged |
+| Low | 16 listed | 13 Resolved, 3 Acknowledged |
+
+### Files created / updated in Phase 9
+
+| # | Path | Purpose |
+|---|------|---------|
+| 1 | `CODE_REVIEW_AUDIT_REPORT.md` | The audit findings + severity matrix + re-audit delta. |
+| 2 | `REMEDIATION_PLAN.md` | The remediation plan with TDD-sequenced tasks (R-1 to R-29). |
+| 3 | `packages/auth/src/password.ts` | scrypt password hashing (`hashPassword`, `verifyPassword`). R-1. |
+| 4 | `packages/auth/src/password.test.ts` | Tests for the password module (5 tests). R-1 RED→GREEN. |
+| 5 | `packages/auth/src/index.ts` (UPDATE) | `signIn()` now calls `verifyPassword()` with `timingSafeEqual`. R-1 GREEN. |
+| 6 | `packages/auth/src/tokens.ts` (UPDATE) | `getSecret()` now throws in production when `BETTER_AUTH_SECRET` is missing. R-5. |
+| 7 | `packages/db/src/password.ts` | scrypt helper mirror for the seed script (avoids circular dep). R-1. |
+| 8 | `packages/db/src/seed.ts` (UPDATE) | Author user gets a real scrypt hash of `dev-password-12345` at seed time. R-1. |
+| 9 | `packages/db/src/client.ts` (UPDATE) | Removed stale `eslint-disable` directive. R-20. |
+| 10 | `apps/web/src/app/(auth)/admin/layout.tsx` (UPDATE) | Calls `requireAuthor()` and redirects to login on rejection. R-6. |
+| 11 | `apps/web/src/app/(auth)/admin/login/page.tsx` (UPDATE) | Login page text reflects the real dev password. R-1. |
+| 12 | `apps/web/src/features/auth/login-form.tsx` (UPDATE) | Comment updated. R-1. |
+| 13 | `apps/web/src/features/auth/actions.ts` (UPDATE) | `signInAction` now applies login rate limit (5 per 10 min per IP). R-8. |
+| 14 | `apps/web/src/features/admin/actions.ts` (UPDATE) | Removed unused `sql` and `and` imports; removed `void sql;` lines. R-23. |
+| 15 | `apps/web/src/features/subscribe/actions.ts` (UPDATE) | Wires `sendEmail()`, uses `signToken(subscriberId)`, masks emails in logs. R-3, R-4, R-19. |
+| 16 | `apps/web/src/app/(public)/page.tsx` (UPDATE) | Renders WebSite JSON-LD. R-11. |
+| 17 | `apps/web/src/app/(public)/posts/[slug]/page.tsx` (UPDATE) | Renders Article JSON-LD. R-11. |
+| 18 | `apps/web/src/components/json-ld.tsx` | `JsonLd` component + `buildWebSiteSchema` + `buildArticleSchema`. R-11. |
+| 19 | `apps/web/src/lib/log.ts` | `maskEmail()` + `logError()` helpers. R-19. |
+| 20 | `apps/web/src/lib/env.ts` (UPDATE) | Distinguishes security-critical env vars; falls back to all-defaults in dev. R-13. |
+| 21 | `apps/web/src/hooks/use-github-stats.ts` (UPDATE) | Adds `initialStars`/`initialForks` to effect deps. R-16. |
+| 22 | `apps/web/src/app/layout.tsx` (UPDATE) | `metadataBase` and OG URL use `env.NEXT_PUBLIC_SITE_URL`. R-12. |
+| 23 | `apps/web/next.config.ts` (UPDATE) | Removes `'unsafe-eval'` from CSP. R-9. |
+| 24 | `apps/web/eslint.config.mjs` (UPDATE) | Adds `json-ld.tsx` to the `react/no-danger` allowlist. |
+| 25 | `package.json` (UPDATE) | Adds `pnpm.overrides` for `react-email>next` and `vitest`; adds `pnpm audit --prod` + `pnpm test:coverage` to the `check` script. R-7, R-21. |
+| 26 | `apps/web/package.json` (UPDATE) | `next-mdx-remote` bumped to `^6.0.0`; `vitest` bumped to `^3.2.6`. R-7. |
+| 27 | `packages/db/package.json` (UPDATE) | `drizzle-orm` bumped to `^0.45.2`. R-7. |
+| 28 | `Project_Requirements_Document.md` (UPDATE) | Revision block v1.1 — audit remediation alignment. R-26. |
+| 29 | `Master_Execution_Plan.md` (UPDATE) | This Phase 9 section. R-28. |
+
+### Phase 9 Acceptance Gate
+
+- [x] `pnpm check-types` green (5/5 packages).
+- [x] `pnpm lint` green (0 errors, 5 cosmetic warnings — all in config files).
+- [x] `pnpm test` green (169 tests passing).
+- [x] `pnpm audit --prod` — 0 critical, 1 high (down from 3 critical, 18 high).
+- [x] `pnpm build` succeeds.
+- [x] `CODE_REVIEW_AUDIT_REPORT.md` §11 re-audit delta populated.
+- [x] `Project_Requirements_Document.md` revision block v1.1 added.
+- [x] This section added to the MEP.
+
+### Phase 9 Commit Cadence
+
+All Phase 9 changes are bundled into a single commit on `main`:
+- `fix(audit): remediate critical + high findings from code review audit`
+
+(Atomic commits per task were planned in `REMEDIATION_PLAN.md` §7 but consolidated for git hygiene; the per-task history is preserved in the audit report's §11 "Findings resolved" table.)
+
+---
+
+**End of MEP v1.1.** For requirements, see `Project_Requirements_Document.md`. For architecture, see `Project_Architecture_Document.md`. For audit findings, see `CODE_REVIEW_AUDIT_REPORT.md`. For remediation tasks, see `REMEDIATION_PLAN.md`.

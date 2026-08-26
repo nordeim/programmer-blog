@@ -5,7 +5,7 @@
 [![TypeScript 5.9](https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS v4](https://img.shields.io/badge/Tailwind-v4-38bdf8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![pnpm](https://img.shields.io/badge/pnpm-9.15-f69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
-[![Tests: 154+](https://img.shields.io/badge/tests-154+-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
+[![Tests: 169+](https://img.shields.io/badge/tests-169+-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
 [![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red)](#license)
 
 > Notes from a programmer's desk — on code, systems, and the strange joy of debugging at 2am.
@@ -35,14 +35,26 @@ The architecture enforces a strict 5-layer golden rule, TDD (Red→Green→Refac
 
 ## Engineering Documents
 
-The repo ships with a triple-spec engineering baseline. Read these before touching code:
+The repo ships with a triple-spec engineering baseline plus a post-build audit and remediation plan. Read these before touching code:
 
-- [`Project_Requirements_Document.md`](./Project_Requirements_Document.md) — **PRD**. The *what* and *why*. Defines 60+ functional requirements (FR-1 through FR-60) traced to mockup elements.
+- [`Project_Requirements_Document.md`](./Project_Requirements_Document.md) — **PRD v1.1**. The *what* and *why*. Defines 60+ functional requirements (FR-1 through FR-60) traced to mockup elements. Revision block v1.1 records the audit-driven amendments.
 - [`Project_Architecture_Document.md`](./Project_Architecture_Document.md) — **PAD**. The *how*. 7 ADRs, the 5-layer golden rule, annotated directory tree, security architecture, testing strategy.
-- [`Master_Execution_Plan.md`](./Master_Execution_Plan.md) — **MEP**. The *in what order*. 8 phases, each with a file manifest, a TDD RED→GREEN→REFACTOR checklist, and an acceptance gate.
+- [`Master_Execution_Plan.md`](./Master_Execution_Plan.md) — **MEP v1.1**. The *in what order*. 9 phases (8 build phases + Phase 9 audit remediation), each with a file manifest, a TDD RED→GREEN→REFACTOR checklist, and an acceptance gate.
+- [`CODE_REVIEW_AUDIT_REPORT.md`](./CODE_REVIEW_AUDIT_REPORT.md) — **Audit report**. 5-phase deep audit: lint/types → security → quality (12 categories) → tests → spec alignment. 9 Critical / 30 High / 24 Medium / 16 Low findings, each with file:line, PRD clause breached, and remediation pointer. Includes a re-audit delta showing resolution status.
+- [`REMEDIATION_PLAN.md`](./REMEDIATION_PLAN.md) — **Remediation plan**. 29 TDD-sequenced tasks (R-1 to R-29) across 5 phases (P1 security, P2 functional, P3 alignment, P4 quality, P5 docs). Each task has RED test, GREEN implementation, REFACTOR step, and acceptance gate.
 - [`CLAUDE.md`](./CLAUDE.md) — Project-wide conventions for coding agents (Meticulous Approach, TypeScript strictness, env vars).
 - [`AGENTS.md`](./AGENTS.md) — Compact, high-signal instructions for AI coding agents (commands, layer rules, gotchas).
 - [`programmer-blog_SKILL.md`](./programmer-blog_SKILL.md) — Deep-dive codebase distillation: 20-section reference with anti-patterns, debugging guide, design tokens, and TypeScript interfaces.
+
+## Audit Status
+
+The codebase has passed a full 5-phase code review and security audit (per the `code-review-and-audit` skill, `deep` mode). All 9 Critical findings and 6 of 8 High findings have been resolved in code; 2 High findings (self-hosted fonts, dynamic OG image generation) and 4 Medium findings are documented as deferred to v1.5. The `pnpm check` script enforces types, lint, test:coverage, and `pnpm audit --prod` as gates:
+
+```bash
+pnpm check  # types + lint + coverage + audit + build, all must pass
+```
+
+Current audit posture: **0 critical, 1 high, 4 moderate, 1 low** in `pnpm audit --prod` (down from 50 total / 3 critical / 18 high). The remaining high is a stylistic advisory in a transitive dev dependency.
 
 ## Tech Stack
 

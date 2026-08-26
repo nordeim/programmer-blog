@@ -6,22 +6,44 @@
  * `cookies()` API from `next/headers`. On success returns
  * `{ ok: true, redirectTo }`. On failure returns `{ ok: false, error }`.
  *
+ * R-8 (audit remediation): enforces PRD §5.4 login rate limit of 5
+ * attempts per 10 minutes per IP, mirroring the pattern in
+ * `features/subscribe/actions.ts`. Prevents brute-force attacks even
+ * though R-1 (scrypt password verification) already eliminates the
+ * previous "any password" bypass.
+ *
  * Also exports `signOutAction()` which clears the cookie.
  */
 'use server';
 
 import 'server-only';
 import { signIn as authSignIn, signOut as authSignOut } from '@devlog/auth';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 
+import { rateLimit } from '@/lib/rate-limit';
 
 const ALLOWED_NEXT_PREFIX = '/admin';
+const LOGIN_RATE_LIMIT_PER_10_MIN = 5;
+const LOGIN_RATE_LIMIT_WINDOW_SECONDS = 600;
 
 function safeNext(next: string | undefined): string {
   if (!next || !next.startsWith(ALLOWED_NEXT_PREFIX)) {
     return ALLOWED_NEXT_PREFIX;
   }
   return next;
+}
+
+function getClientIp(headersList: Awaited<ReturnType<typeof headers>>): string {
+  // x-forwarded-for is the standard header from reverse proxies (Vercel,
+  // nginx, etc.). It may contain a comma-separated list; the first
+  // entry is the originating client.
+  const xff = headersList.get('x-forwarded-for');
+  if (xff) {
+    const first = xff.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  // Fallback to x-real-ip (some proxies set this) or 'unknown'.
+  return headersList.get('x-real-ip')?.trim() || 'unknown';
 }
 
 export interface SignInSuccess {
@@ -42,6 +64,22 @@ export async function signInAction(input: {
   next?: string;
 }): Promise<SignInResult> {
   const { email, password, next } = input;
+
+  // R-8: rate limit by IP before any DB lookup to prevent brute-force.
+  const headersList = await headers();
+  const ip = getClientIp(headersList);
+  const allowed = await rateLimit(
+    `login:${ip}`,
+    LOGIN_RATE_LIMIT_PER_10_MIN,
+    LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+  );
+  if (!allowed) {
+    return {
+      ok: false,
+      error: 'Too many sign-in attempts. Try again in 10 minutes.',
+    };
+  }
+
   const jar = await cookies();
   const result = await authSignIn(email, password, (name, value, opts) => {
     jar.set(name, value, {

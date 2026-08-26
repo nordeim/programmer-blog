@@ -16,9 +16,12 @@ import { cookies } from 'next/headers';
 
 import './globals.css';
 import { THEME_COOKIE, VALID_THEMES, type Theme } from '@/domain/theme';
+import { env } from '@/lib/env';
+
+const siteUrl = env.NEXT_PUBLIC_SITE_URL;
 
 export const metadata: Metadata = {
-  metadataBase: new URL('http://localhost:3000'),
+  metadataBase: new URL(siteUrl),
   title: {
     default: "/dev/log — Notes from a Programmer's Desk",
     template: '%s · /dev/log',
@@ -30,7 +33,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: 'http://localhost:3000',
+    url: siteUrl,
     siteName: '/dev/log',
     title: "/dev/log — Notes from a Programmer's Desk",
     description:
@@ -44,7 +47,7 @@ export const metadata: Metadata = {
   alternates: {
     canonical: '/',
     types: {
-      'application/rss+xml': 'http://localhost:3000/rss.xml',
+      'application/rss+xml': `${siteUrl}/rss.xml`,
     },
   },
 };

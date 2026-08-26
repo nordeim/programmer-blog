@@ -5,19 +5,24 @@
  * middleware allows through unauthenticated). Sidebar with:
  * Dashboard, Posts, Subscribers, Comments, Settings, Sign out.
  *
- * The login page bypasses this layout because it's mounted under
- * `/admin/login` while this layout applies to the (auth) route
- * group. The login page lives under `(auth)/admin/login` and the
- * rest live under `(auth)/admin/...` — both share this layout.
- * For the login page specifically, the sidebar is hidden via a
- * prop check on pathname (we read it from `headers()`).
+ * R-6 (audit remediation): enforces `role === 'author'` at the page-shell
+ * layer. The middleware (apps/web/src/middleware.ts) only verifies the
+ * session token's HMAC signature at the edge — it cannot check the role
+ * because the DB-backed user lookup is not Edge-runtime-safe. This layout
+ * calls `requireAuthor()` (which throws `AuthorRequiredError` for any
+ * missing/invalid session or non-author role) and redirects to the login
+ * page on rejection.
  *
- * Source: MEP §7 Phase 6 GREEN 6.4 #2.
+ * The login page bypasses this layout via the early-return pathname check
+ * below — it renders just `{children}` without the sidebar.
+ *
+ * Source: MEP §7 Phase 6 GREEN 6.4 #2 + R-6 audit remediation.
  */
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 
 import { SignOutButton } from '@/features/auth/sign-out-button';
-import { getSession } from '@/lib/auth';
+import { isAuthorRequiredError, requireAuthor } from '@/lib/auth';
 
 const NAV = [
   { href: '/admin', label: 'Dashboard' },
@@ -37,8 +42,19 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     return <>{children}</>;
   }
 
+  // R-6: enforce role === 'author' for the entire admin shell.
   const jar = (await import('next/headers').then((m) => m.cookies()));
-  const user = await getSession(jar.get('devlog_session')?.value);
+  const cookieValue = jar.get('devlog_session')?.value;
+  let user: Awaited<ReturnType<typeof requireAuthor>>;
+  try {
+    user = await requireAuthor(cookieValue);
+  } catch (e) {
+    if (isAuthorRequiredError(e)) {
+      const next = encodeURIComponent(pathname || '/admin');
+      redirect(`/admin/login?next=${next}`);
+    }
+    throw e;
+  }
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row">

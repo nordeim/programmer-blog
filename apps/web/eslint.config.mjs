@@ -89,7 +89,8 @@ export default [
   {
     // mdx.ts uses dangerouslySetInnerHTML via next-mdx-remote's serialize.
     // layout.tsx uses dangerouslySetInnerHTML for the inline theme-sync script.
-    files: ['src/lib/mdx.ts', 'src/app/layout.tsx'],
+    // json-ld.tsx uses dangerouslySetInnerHTML for SEO JSON-LD blobs (server-controlled data, not user-submitted).
+    files: ['src/lib/mdx.ts', 'src/app/layout.tsx', 'src/components/json-ld.tsx'],
     rules: {
       'react/no-danger': 'off',
     },

@@ -25,7 +25,7 @@
     "db:seed": "turbo run db:seed",
     "db:studio": "turbo run db:studio",
     "clean": "turbo run clean && rimraf node_modules .turbo",
-    "check": "pnpm check-types && pnpm lint && pnpm test && pnpm build"
+    "check": "pnpm check-types && pnpm lint && pnpm test:coverage && pnpm audit --prod && pnpm build"
   },
   "devDependencies": {
     "turbo": "^2.4.0",
@@ -37,5 +37,11 @@
     "lint-staged": "^15.2.0",
     "@commitlint/cli": "^19.5.0",
     "@commitlint/config-conventional": "^19.5.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "react-email>next": "^16.0.0",
+      "vitest": "^3.2.6"
+    }
   }
 }

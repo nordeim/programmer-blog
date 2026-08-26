@@ -22,7 +22,16 @@ const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 function getSecret(): string {
   const s = process.env.BETTER_AUTH_SECRET;
   if (!s || s.length < 32) {
-    // Dev fallback: deterministic but obviously-fake. Prod would throw.
+    // R-5 (audit remediation): in production we MUST NOT fall back to a
+    // hardcoded dev secret — that would let anyone who reads this public
+    // repo forge valid 30-day author session tokens for any deployment
+    // that forgot to set BETTER_AUTH_SECRET. Throw instead.
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'BETTER_AUTH_SECRET must be set to a value >= 32 chars in production.',
+      );
+    }
+    // Dev fallback: deterministic but obviously-fake.
     return 'dev-only-secret-replace-in-production-xxxxxxxxxxxxxx';
   }
   return s;

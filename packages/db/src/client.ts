@@ -23,7 +23,8 @@ import * as schema from './schema';
 type DrizzleClient = BetterSQLite3Database<typeof schema>;
 
 declare global {
-  // eslint-disable-next-line no-var
+  // R-20 (audit remediation): removed the stale `eslint-disable-next-line no-var`
+  // directive — the rule no longer fires on this line, so the disable was unused.
   var __devlog_db:
     | DrizzleClient
     | undefined;

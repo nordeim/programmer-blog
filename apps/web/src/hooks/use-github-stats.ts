@@ -36,13 +36,15 @@ export function useGitHubStats({
   });
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // R-16 (audit remediation): include initialStars and initialForks in the
+  // effect's deps so the lint rule is satisfied and the hook re-runs if
+  // the parent passes different fallback numbers (the effect is idempotent
+  // because fetchOnce always overwrites with fresh API data on success).
   useEffect(() => {
     if (!poll) return;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
     let cancelled = false;
-    // Capture initial values so the catch path can restore them without
-    // re-triggering the effect when state changes.
     const initialSnapshot = { stars: initialStars, forks: initialForks };
 
     async function fetchOnce() {
@@ -79,7 +81,7 @@ export function useGitHubStats({
       cancelled = true;
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [poll]);
+  }, [poll, initialStars, initialForks]);
 
   return { stars: stats.stars, forks: stats.forks };
 }

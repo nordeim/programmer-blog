@@ -25,12 +25,15 @@ import {
   verifySessionToken,
   verifyToken,
 } from './tokens';
+import { hashPassword, verifyPassword } from './password';
 
 export {
   SESSION_COOKIE,
   SESSION_TTL,
   createSessionToken,
+  hashPassword,
   signToken,
+  verifyPassword,
   verifySessionToken,
   verifyToken,
 };
@@ -49,13 +52,17 @@ export interface SessionUser {
  * (since this runs in a server action context where we don't have
  * direct Response access).
  *
- * Password verification: v1 accepts any password for the seeded author
- * email. A TODO is wired in to swap to bcrypt once the seed produces
- * real hashes.
+ * Password verification (R-1 audit remediation): the passwordHash column
+ * stores a scrypt hash in format `scrypt:N:r:p:salt:hash`. We verify with
+ * `verifyPassword(password, user.passwordHash)` using `timingSafeEqual` to
+ * prevent timing attacks. Wrong password returns the same error message
+ * as "no account" to prevent user enumeration.
+ *
+ * Server-only.
  */
 export async function signIn(
   email: string,
-  _password: string,
+  password: string,
   setCookie: (name: string, value: string, opts: { maxAge: number; httpOnly: boolean; sameSite: 'lax' | 'strict' | 'none'; path: string; secure: boolean }) => void,
 ): Promise<{ ok: true; user: SessionUser } | { ok: false; error: string }> {
   try {
@@ -66,14 +73,17 @@ export async function signIn(
       .limit(1)
       .all();
     const user = rows[0];
+    // Same error message for "no user" and "wrong password" — prevents
+    // user enumeration via the login form.
+    const genericError = 'Invalid email or password.';
     if (!user) {
-      return { ok: false, error: 'No account with that email.' };
+      return { ok: false, error: genericError };
     }
-    // Phase 6 v1: accept any password for the seeded author.
-    // TODO(better-auth): swap this for a real bcrypt compare once the
-    // seed produces real password hashes (PAD §4.2 ADR-006).
     if (user.role !== 'author') {
-      return { ok: false, error: 'This account is not an author.' };
+      return { ok: false, error: genericError };
+    }
+    if (!user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+      return { ok: false, error: genericError };
     }
     const token = createSessionToken(user.id);
     setCookie(SESSION_COOKIE, token, {

@@ -11,6 +11,7 @@
 import { desc, eq } from 'drizzle-orm';
 
 import { db } from './client';
+import { hashPassword } from './password';
 import { comments, posts, postsToTags, siteSettings, subscribers, tags, users } from './schema';
 
 const TAG_SEED: { slug: string; name: string }[] = [
@@ -249,15 +250,18 @@ export async function runSeed(): Promise<void> {
   const existingAuthor = await db.select().from(users).where(eq(users.role, 'author')).get();
   let authorId = existingAuthor?.id;
   if (!existingAuthor) {
+    // R-1 (audit remediation): compute a real scrypt hash of the dev password
+    // at seed time, so the auth flow can verify with verifyPassword().
+    // Format: scrypt:N:r:p:salt-hex:hash-hex — matches packages/auth/src/password.ts.
+    const devPassword = process.env.DEV_AUTHOR_PASSWORD ?? 'dev-password-12345';
+    const authorHash = hashPassword(devPassword);
     const result = await db
       .insert(users)
       .values({
         email: 'author@devlog.example',
         name: 'Alex Rivera',
         role: 'author',
-        // Phase 6 will swap this for a real Better Auth hash.
-        // For Phase 2 we set a placeholder that the seed notes is dev-only.
-        passwordHash: 'dev-only-placeholder-replace-in-phase-6',
+        passwordHash: authorHash,
         emailVerified: true,
       })
       .returning({ id: users.id })

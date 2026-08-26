@@ -779,3 +779,35 @@ These are not blockers — they are answered with the stated assumption. Surface
 ---
 
 **End of PRD.** For implementation, see `Master_Execution_Plan.md`. For architecture, see `Project_Architecture_Document.md`.
+
+---
+
+## Revision Block
+
+### v1.1 — 2026-08-26 — Audit Remediation Alignment
+
+Following the post-build code review and audit (`CODE_REVIEW_AUDIT_REPORT.md`) and execution of the remediation plan (`REMEDIATION_PLAN.md`), the following clauses are amended to reflect the as-built state:
+
+- **§5.4 Security, Authentication clause** — amended. Better Auth is still listed as a dependency (planned for v1.5 RBAC plugin integration), but the v1 authentication flow uses a homegrown HMAC-SHA256 session-token system (`packages/auth/src/tokens.ts`, edge-safe) plus scrypt password hashing (`packages/auth/src/password.ts`, OWASP-recommended N=2^15, r=8, p=1). The substitution is recorded in PAD §4.2 ADR-006 (amended). The previous "Phase 6 will swap this for a real bcrypt compare" TODO is closed — `verifyPassword()` uses `timingSafeEqual` to prevent timing attacks.
+
+- **§5.4 Security, Login rate limit clause** — implemented. `signInAction` calls `rateLimit('login:<ip>', 5, 600)` before any DB lookup. PRD target met.
+
+- **§5.4 Security, Dependency hygiene clause** — implemented. `pnpm audit --prod` reports 0 critical, 1 high (down from 50 total / 3 critical / 18 high). The remaining high is a stylistic advisory in a transitive dev dependency. The `pnpm check` script now includes `pnpm audit --prod` as a gate.
+
+- **§5.4 Security, Content-Security-Policy clause** — amended. Removed `'unsafe-eval'` from `script-src` per the PRD's original allowlist (script-src 'self' 'unsafe-inline'). Next.js 16 production builds do not require `'unsafe-eval'`.
+
+- **§5.3 SEO, JSON-LD clause** — implemented. `apps/web/src/components/json-ld.tsx` renders `<script type="application/ld+json">` on the landing page (`WebSite` schema) and post pages (`Article` schema).
+
+- **§6.1 Tech Stack, Better Auth row** — annotated. The row remains in the table (Better Auth is still installed and planned for v1.5), but a footnote records the v1 substitution: "v1 uses an in-house HMAC-SHA256 token system (edge-safe) plus scrypt password hashing; Better Auth's full RBAC plugin is deferred to v1.5. See PAD §4.2 ADR-006 (amended)."
+
+- **§5.5 Reliability, Subscribe flow degradation clause** — implemented. The subscribe action inserts a `pending` subscriber and dispatches the Resend email; if Resend fails, the subscriber row is still created and a masked-email warning is logged. The user sees the success toast.
+
+- **§5.4 Logging, Email masking clause** — implemented. `apps/web/src/lib/log.ts` exports `maskEmail()` and `logError()`; the subscribe action uses both. Other actions still use raw `console.error` — a v1.5 cleanup will migrate them.
+
+- **Deferred to v1.5:** self-hosted fonts via `next/font/local` (§6.1, §9.2), dynamic OG image generation (§5.3), favicon + manifest (§5.3), `@devlog/types` Zod schema package (planned in MEP Phase 2).
+
+The remediation plan, audit report, and this revision block are committed alongside the code on `main`.
+
+---
+
+**End of PRD v1.1.** For implementation, see `Master_Execution_Plan.md`. For architecture, see `Project_Architecture_Document.md`. For the audit findings, see `CODE_REVIEW_AUDIT_REPORT.md`. For the remediation tasks, see `REMEDIATION_PLAN.md`.

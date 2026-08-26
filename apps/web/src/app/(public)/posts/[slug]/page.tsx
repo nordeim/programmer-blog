@@ -21,6 +21,7 @@ import {
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
+import { buildArticleSchema, JsonLd } from '@/components/json-ld';
 import { PostPage } from '@/features/blog/post-page';
 import { env } from '@/lib/env';
 
@@ -93,31 +94,47 @@ export default async function PostRoute({
     getSiteSettings(),
   ]);
 
+  // R-11 (audit remediation): Article JSON-LD for SEO per PRD §5.3.
+  const postUrl = `${env.NEXT_PUBLIC_SITE_URL}/posts/${post.slug}`;
+  const articleSchema = buildArticleSchema({
+    headline: post.title,
+    url: postUrl,
+    datePublished: (post.publishedAt ?? new Date()).toISOString(),
+    dateModified: post.updatedAt ? post.updatedAt.toISOString() : undefined,
+    authorName: settings?.authorName ?? 'Alex Rivera',
+    authorUrl: env.NEXT_PUBLIC_SITE_URL,
+    image: post.coverImageUrl ?? undefined,
+    description: post.excerpt,
+  });
+
   return (
-    <PostPage
-      post={{
-        slug: post.slug,
-        title: post.title,
-        excerpt: post.excerpt,
-        contentMdx: post.contentMdx,
-        publishedAt: post.publishedAt,
-        readingTimeMinutes: post.readingTimeMinutes,
-        coverImageUrl: post.coverImageUrl,
-        updatedAt: post.updatedAt,
-      }}
-      tags={tags}
-      prev={adjacent.previous}
-      next={adjacent.next}
-      comments={comments}
-      settings={
-        settings
-          ? {
-              authorName: settings.authorName,
-              authorBio: settings.authorBio,
-              authorAvatarUrl: settings.authorAvatarUrl,
-            }
-          : null
-      }
-    />
+    <>
+      <JsonLd data={articleSchema} />
+      <PostPage
+        post={{
+          slug: post.slug,
+          title: post.title,
+          excerpt: post.excerpt,
+          contentMdx: post.contentMdx,
+          publishedAt: post.publishedAt,
+          readingTimeMinutes: post.readingTimeMinutes,
+          coverImageUrl: post.coverImageUrl,
+          updatedAt: post.updatedAt,
+        }}
+        tags={tags}
+        prev={adjacent.previous}
+        next={adjacent.next}
+        comments={comments}
+        settings={
+          settings
+            ? {
+                authorName: settings.authorName,
+                authorBio: settings.authorBio,
+                authorAvatarUrl: settings.authorAvatarUrl,
+              }
+            : null
+        }
+      />
+    </>
   );
 }

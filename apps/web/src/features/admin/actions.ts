@@ -16,7 +16,7 @@
 'use server';
 
 import 'server-only';
-import { and, eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 import { z } from 'zod';
 
@@ -335,6 +335,3 @@ export async function updateSiteSettings(input: unknown): Promise<AdminResult> {
     return fail('Server error.');
   }
 }
-
-void sql;
-void and;

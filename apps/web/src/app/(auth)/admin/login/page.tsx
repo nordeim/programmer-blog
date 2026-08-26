@@ -64,8 +64,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           className="font-mono text-xs mt-12"
           style={{ color: 'var(--muted)' }}
         >
-          $ use <code>author@devlog.example</code> with any password in dev
-          (the seed sets a placeholder hash that accepts any password).
+          $ dev credentials — <code>author@devlog.example</code> /{' '}
+          <code>dev-password-12345</code> (set by the seed script; override
+          with the <code>DEV_AUTHOR_PASSWORD</code> env var).
         </p>
       </div>
     </section>

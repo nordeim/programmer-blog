@@ -1,7 +1,10 @@
 import type { NextConfig } from 'next';
 
 const securityHeaders = () => [
-  { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.github.com https://api.resend.com; frame-ancestors 'none';" },
+  // R-9 (audit remediation): removed 'unsafe-eval' from script-src per PRD §5.4.
+  // Next.js 16 production builds do not require 'unsafe-eval'. 'unsafe-inline'
+  // is required because Next.js injects inline scripts for hydration data.
+  { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.github.com https://api.resend.com; frame-ancestors 'none';" },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },

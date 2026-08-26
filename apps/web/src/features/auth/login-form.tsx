@@ -5,9 +5,10 @@
  * Action. On success, redirects to `next` (or `/admin`). Surfaces
  * server-returned errors inline.
  *
- * Phase 6 v1: the seed sets passwordHash='dev-only-placeholder...'.
- * The server action accepts any password for the seeded author email.
- * A TODO is wired in to swap to bcrypt compare.
+ * R-1 (audit remediation): the seed now sets a real scrypt hash of
+ * 'dev-password-12345' (overridable via DEV_AUTHOR_PASSWORD env var).
+ * The server action verifies the password via `verifyPassword()` from
+ * `packages/auth/src/password.ts` using `timingSafeEqual`.
  */
 'use client';
 
