@@ -1,0 +1,2125 @@
+---
+name: programmer-blog-skill
+description: >
+  Comprehensive engineering reference for the /dev/log programmer blog — a Next.js 16
+  App Router + React 19 + Tailwind v4 (CSS-first @theme) + Drizzle ORM (better-sqlite3) +
+  Better Auth + Resend + Vitest monorepo. Distilled from the completed Phases 1–7 of the
+  Master Execution Plan (MEP). Use this when extending, debugging, onboarding to, or
+  replicating the /dev/log architecture.
+version: 1.0.0
+project: devlog
+last_updated: 2026-08-26
+project_state: 154+ tests green, 5 packages, Phases 1–7 complete
+tags:
+  - documentation
+  - knowledge-distillation
+  - nextjs-16
+  - react-19
+  - tailwind-v4
+  - drizzle-orm
+  - better-auth
+  - monorepo
+  - tdd
+---
+
+# `/dev/log` — Programmer Blog Engineering Skill (SKILL.md)
+
+> **How to use this document:** This is the deep-dive codebase reference for `/dev/log`. Read §1–§3 before extending any feature. Read §9 + §10 when debugging. Read §11 before pushing. Read §19 + §20 when authoring or modifying design tokens / TypeScript types. All claims are verified against the actual codebase as of commit `cc5c4bd` (Phase 7 validation pass).
+
+---
+
+## Table of Contents
+
+1. [Project Identity & Design Philosophy](#1-project-identity--design-philosophy)
+2. [Tech Stack & Environment](#2-tech-stack--environment)
+3. [Bootstrapping & Configuration](#3-bootstrapping--configuration)
+4. [The Design System (Code-First)](#4-the-design-system-code-first)
+5. [Component Architecture & Patterns](#5-component-architecture--patterns)
+6. [Custom Hooks Deep Dive](#6-custom-hooks-deep-dive)
+7. [Content Management & Data Ingestion](#7-content-management--data-ingestion)
+8. [Accessibility (WCAG AAA) Implementation](#8-accessibility-wcag-aaa-implementation)
+9. [Anti-Patterns & Common Bugs](#9-anti-patterns--common-bugs)
+10. [Debugging Guide](#10-debugging-guide)
+11. [Pre-Ship Checklist](#11-pre-ship-checklist)
+12. [Lessons Learnt & How to Avoid Them](#12-lessons-learnt--how-to-avoid-them)
+13. [Pitfalls to Avoid](#13-pitfalls-to-avoid)
+14. [Best Practices](#14-best-practices)
+15. [Coding Patterns](#15-coding-patterns)
+16. [Coding Anti-Patterns](#16-coding-anti-patterns)
+17. [Responsive Breakpoint Reference](#17-responsive-breakpoint-reference)
+18. [Z-Index Layer Map](#18-z-index-layer-map)
+19. [Color Reference (Complete)](#19-color-reference-complete)
+20. [The Complete TypeScript Interface Reference](#20-the-complete-typescript-interface-reference)
+- [Appendix A: ADRs (Architecture Decision Records)](#appendix-a-adrs)
+- [Appendix B: The Meticulous Approach](#appendix-b-the-meticulous-approach)
+- [Appendix C: Quick Reference Card](#appendix-c-quick-reference-card)
+
+---
+
+## 1. Project Identity & Design Philosophy
+
+### 1.1 What This Is
+
+`/dev/log — Notes from a Programmer's Desk` (package name: `devlog`) is a production-grade programmer blog by Alex Rivera. Built as a pnpm + Turborepo monorepo with Next.js 16 App Router, React 19, Tailwind CSS v4 (CSS-first `@theme`), Drizzle ORM + better-sqlite3, Better Auth, Resend + React Email, and Vitest.
+
+The repo ships three engineering specs at the root: a [PRD](./Project_Requirements_Document.md) (60+ functional requirements), a [PAD](./Project_Architecture_Document.md) (7 ADRs + 5-layer golden rule), and an [MEP](./Master_Execution_Plan.md) (8-phase TDD roadmap). All code changes trace to an FR-N in the PRD via `Refs: FR-N` commit footers.
+
+### 1.2 The Design Thesis
+
+The visual identity is a **terminal-meets-editor aesthetic**: a JetBrains Mono / Fraunces / Space Grotesk typography stack, three closed-budget themes (dark / light / cyber), CSS-only animation (no Framer Motion, no GSAP), and a strict 4px corner radius scale. The landing page is a pixel-for-pixel port of [`landing_page_mockup.html`](./landing_page_mockup.html) — the mockup is the source of truth and is **never modified** without an explicit design decision.
+
+### 1.3 Non-Negotiable Design Rules
+
+- **Three themes only.** Dark (`#0c0b09`), Light (`#f3ecdc`), Cyber (`#02060a`). The design budget is closed; do not add a 4th theme.
+- **CSS-only animation.** All motion is `@keyframes` + `transition`. `prefers-reduced-motion` is enforced globally in `globals.css`.
+- **4px radius scale.** `--radius-sm: 2px`, `--radius: 4px`, `--radius-md: 4px`, `--radius-lg: 8px`, `--radius-full: 999px`. No other values.
+- **Typography hierarchy:**
+  - `--font-display: 'Fraunces', Georgia, serif` — italic display accents only.
+  - `--font-mono: 'JetBrains Mono', 'Fira Code', monospace` — all headings, code, nav, buttons.
+  - `--font-body: 'Space Grotesk', system-ui, sans-serif` — body copy only.
+- **No purple gradients.** The accent palette is amber (`#f59e0b`) on dark, terracotta (`#c2410c`) on light, neon yellow (`#ffea00`) on cyber. Never introduce purple.
+- **No Bootstrap / Material / shadcn-ui default styles.** Component classes (`.btn-primary`, `.article-card`, `.code-window`, etc.) are authored in `globals.css` and are the only allowed visual primitives.
+
+### 1.4 CTA Hierarchy
+
+1. **`.btn-primary`** — solid accent background, black mono text, shimmer sweep on hover. Used for the primary action (e.g. "read latest", "subscribe").
+2. **`.btn-secondary`** — transparent with strong border, accent color on hover. Used for the secondary action (e.g. "≡ subscribe" on hero).
+3. **`.stat-pill`** — pill-shaped, mono 12px, used for live GitHub stats in the nav.
+4. **`.tag`** — square 2px radius, mono 10px uppercase, accent-tinted background. Used for issue numbers and post tags.
+5. **`.hover-link`** — text-only with animated underline. Used for footer + archive links.
+
+### 1.5 The Anti-Generic Mandate
+
+The repo explicitly rejects: Bootstrap grids, Material Design elevation, default Tailwind shadow utilities (`shadow-lg`), `forwardRef`, `enum`/`namespace`, default exports, `as any`, Framer Motion, GSAP, Redux, React Query, swr, JWT (we use HMAC tokens), Postgres (SQLite only), Redis (in-memory rate limiter only).
+
+---
+
+## 2. Tech Stack & Environment
+
+### 2.1 Locked Versions
+
+| Layer | Technology | Version | Critical Note |
+|---|---|---|---|
+| Package manager | pnpm | `9.15.4` | Declared in `package.json#packageManager`. Never `npm` or `yarn`. |
+| Runtime | Node.js | `≥20.0.0` | Declared in `package.json#engines`. |
+| Monorepo | Turborepo | `^2.4.0` | `turbo.json` declares `globalEnv` for env-aware caching. |
+| Web framework | Next.js (App Router) | `^16.0` | `output: 'standalone'`; `middleware.ts` (not `proxy.ts`). |
+| UI runtime | React | `^19.0` | No `forwardRef` — `ref` is a regular prop. |
+| Language | TypeScript | `^5.9.0` | `strict`, `noUncheckedIndexedAccess`, `erasableSyntaxOnly`. |
+| Styling | Tailwind CSS | v4 (CSS-first `@theme`) | No `tailwind.config.ts`. Tokens in `globals.css` + `packages/config/tailwind/base.css`. |
+| ORM | drizzle-orm + drizzle-kit | `^0.40` | SQLite-only. Migrations via `drizzle-kit generate`. |
+| Database | better-sqlite3 | `^12` | Single file at `apps/web/devlog.db`. No Postgres, no Redis. |
+| Auth | better-auth | `^1.6` | Instance in `packages/auth/src/index.ts`; edge-safe tokens split to `tokens.ts`. |
+| Email | Resend + React Email | `^4` / `^3` | Degrades gracefully without `RESEND_API_KEY` in dev. |
+| Validation | Zod | `^3.25` | At every boundary: env, Server Action inputs, API bodies. |
+| Client state | Zustand | `^5` | Theme + UI stores only. Never for server state. |
+| Linter | ESLint | 9 (flat config) | `no-restricted-syntax` blocks `as any`/`enum`/`namespace`. |
+| Test runner | Vitest + jsdom | `^2.1` / `^25` | Co-located tests: `Foo.tsx` ↔ `Foo.test.tsx`. |
+| Content | MDX | (bundled with Next.js) | `pageExtensions: ['ts','tsx','js','jsx','md','mdx']`. |
+| Formatter | Prettier | `^3.3.0` | With `prettier-plugin-tailwindcss@^0.6.0`. |
+| Pre-commit | Husky + lint-staged | `^9.1.0` / `^15.2.0` | Runs Prettier + ESLint on staged files. |
+| Commit lint | @commitlint/cli + config-conventional | `^19.5.0` | Enforces Conventional Commits. Subject ≤72 chars. |
+
+### 2.2 Environment Variables (12 total)
+
+Defined in [`apps/web/src/lib/env.ts`](./apps/web/src/lib/env.ts) via Zod. **Throws at boot in production** if any required var is missing.
+
+**Server-side** (read via `apps/web/src/lib/env.ts`):
+
+| Variable | Zod rule | Default | Purpose |
+|---|---|---|---|
+| `DATABASE_PATH` | `z.string()` | `./devlog.db` | SQLite file path (relative to `apps/web/`). |
+| `BETTER_AUTH_SECRET` | `z.string().min(32).optional()` | — | 32-byte session cookie signing key. **Required in prod.** |
+| `BETTER_AUTH_URL` | `z.string().url()` | `http://localhost:3000` | Canonical site URL for auth callbacks. |
+| `RESEND_API_KEY` | `z.string().startsWith('re_').optional()` | — | Resend API key. Optional in dev (degrades gracefully). |
+| `RESEND_FROM` | `z.string().email()` | `onboarding@resend.dev` | From address (must be on verified Resend domain). |
+| `SIGNED_TOKEN_SECRET` | `z.string().min(32).optional()` | — | 32-byte HMAC key for subscribe/unsubscribe tokens. **Required in prod.** |
+| `GITHUB_STATS_FALLBACK_STARS` | `z.coerce.number().int()` | `82400` | Used when GitHub API rate-limited. |
+| `GITHUB_STATS_FALLBACK_FORKS` | `z.coerce.number().int()` | `4180` | Used when GitHub API rate-limited. |
+| `CRON_SECRET` | `z.string().optional()` | — | Shared secret for `POST /api/cron/*` endpoints. |
+| `NODE_ENV` | `z.enum(['development','test','production'])` | `development` | Set by Next.js. |
+
+**Public** (inlined by Next.js, safe in client components):
+
+| Variable | Zod rule | Default | Purpose |
+|---|---|---|---|
+| `NEXT_PUBLIC_SITE_URL` | `z.string().url()` | `http://localhost:3000` | Canonical site URL for RSS, OG tags, email links. |
+| `NEXT_PUBLIC_GITHUB_REPO` | `z.string()` | `tailwindlabs/tailwindcss` | `owner/repo` for the nav star pill. |
+| `NEXT_PUBLIC_AUTHOR_EMAIL` | `z.string().email()` | `hi@devlog.example` | Author email for footer mailto. |
+
+**Access pattern:** Never read `process.env.FOO` directly in feature/component code. Always go through `apps/web/src/lib/env.ts`. Public vars (`NEXT_PUBLIC_*`) are inlined by Next.js and safe to read in client components.
+
+### 2.3 Test Counts (Phase 7 baseline)
+
+- **154+ tests** across 5 packages (`@devlog/web`, `@devlog/db`, `@devlog/auth`, `@devlog/email`, `@devlog/types`).
+- All green. Updated on every commit via `turbo run test`.
+
+---
+
+## 3. Bootstrapping & Configuration
+
+### 3.1 First-Time Setup
+
+```bash
+# Requires: Node ≥20, pnpm ≥9.15
+node --version
+pnpm --version
+
+git clone https://github.com/nordeim/programmer-blog.git
+cd programmer-blog
+pnpm install
+
+cp .env.example .env.local
+# Edit .env.local:
+#   BETTER_AUTH_SECRET:   openssl rand -hex 32
+#   SIGNED_TOKEN_SECRET:  openssl rand -hex 32
+#   RESEND_API_KEY (optional in dev)
+
+pnpm db:generate   # Drizzle Kit diffs schema.ts → writes packages/db/migrations/*.sql
+pnpm db:migrate     # Applies migrations → creates apps/web/devlog.db
+pnpm db:seed        # Seeds mockup data (3 posts, 6 archive, 5 snippets, 1 author)
+
+pnpm dev           # http://localhost:3000
+pnpm check         # Full quality gate: check-types && lint && test && build
+```
+
+### 3.2 Critical Configuration Files
+
+| File | Purpose | Locked? |
+|---|---|---|
+| [`tsconfig.base.json`](./tsconfig.base.json) | Root TS config. `strict`, `noUncheckedIndexedAccess`, `erasableSyntaxOnly`, path aliases. | Yes — do not relax. |
+| [`apps/web/next.config.ts`](./apps/web/next.config.ts) | Next.js 16 config: `output: 'standalone'`, `transpilePackages`, MDX page extensions, security headers. | Yes — headers must not regress. |
+| [`apps/web/src/app/globals.css`](./apps/web/src/app/globals.css) | The full `/dev/log` design system. 1:1 port of mockup lines 14-578. | Yes — mockup is the source of truth. |
+| [`packages/config/tailwind/base.css`](./packages/config/tailwind/base.css) | Raw color tokens per `[data-theme="dark\|light\|cyber"]`. | Yes — design budget closed. |
+| [`turbo.json`](./turbo.json) | Turborepo task graph + `globalEnv` for env-aware caching. | Yes — adding a script requires updating `tasks`. |
+| [`pnpm-workspace.yaml`](./pnpm-workspace.yaml) | Declares `apps/*` + `packages/*`. | — |
+| [`commitlint.config.mjs`](./commitlint.config.mjs) | Conventional Commits enforcement. | — |
+| [`apps/web/vitest.config.ts`](./apps/web/vitest.config.ts) | Vitest + jsdom config. | — |
+
+### 3.3 The `erasableSyntaxOnly` Gotcha
+
+`tsconfig.base.json` sets `erasableSyntaxOnly: true` — this **forbids `enum` and `namespace`**. Use the `as const` pattern instead:
+
+```typescript
+// ❌ FORBIDDEN — won't compile
+enum Role { Author = 'author', Subscriber = 'subscriber' }
+
+// ✅ Correct
+const Role = { Author: 'author', Subscriber: 'subscriber' } as const;
+type Role = (typeof Role)[keyof typeof Role];
+```
+
+### 3.4 Path Aliases
+
+Defined in `tsconfig.base.json#paths`:
+
+```json
+{
+  "@devlog/db": ["./packages/db/src/index.ts"],
+  "@devlog/db/*": ["./packages/db/src/*"],
+  "@devlog/auth": ["./packages/auth/src/index.ts"],
+  "@devlog/auth/*": ["./packages/auth/src/*"],
+  "@devlog/email": ["./packages/email/src/index.ts"],
+  "@devlog/email/*": ["./packages/email/src/*"],
+  "@devlog/types": ["./packages/types/src/index.ts"],
+  "@devlog/types/*": ["./packages/types/src/*"],
+  "@devlog/config": ["./packages/config/index.ts"],
+  "@devlog/config/*": ["./packages/config/*"]
+}
+```
+
+`next.config.ts` declares all 5 in `transpilePackages` so Next.js consumes the TypeScript source directly (no build step for the local packages).
+
+### 3.5 Workspace Layout
+
+```yaml
+# pnpm-workspace.yaml
+packages:
+  - 'apps/*'      # apps/web
+  - 'packages/*'  # db, auth, email, types, config
+```
+
+---
+
+## 4. The Design System (Code-First)
+
+### 4.1 The `@theme` Block
+
+[`apps/web/src/app/globals.css`](./apps/web/src/app/globals.css) lines 21-46 declares the `@theme` block. It **maps** raw color tokens (which live in `packages/config/tailwind/base.css` per `[data-theme="..."]`) to Tailwind utility class names:
+
+```css
+@theme {
+  --color-bg: var(--bg);
+  --color-bg-elev: var(--bg-elev);
+  --color-bg-elev-2: var(--bg-elev-2);
+  --color-fg: var(--fg);
+  --color-fg-dim: var(--fg-dim);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-card: var(--card);
+  --color-code-bg: var(--code-bg);
+  --color-code-fg: var(--code-fg);
+  --color-glow: var(--glow);
+
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-body: 'Space Grotesk', system-ui, sans-serif;
+
+  --radius: 4px;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+  --radius-full: 999px;
+}
+```
+
+This means `bg-bg`, `text-accent`, `border-border-strong`, `font-mono`, `rounded-lg` etc. all work as Tailwind utilities. **Never use arbitrary values** like `text-[#f59e0b]` — use `text-accent` or extend `@theme`.
+
+### 4.2 Typography Hierarchy
+
+| Role | Font | Weight | Size | Tracking | Usage |
+|---|---|---|---|---|---|
+| Hero H1 | `--font-mono` | 700 | `clamp(2.5rem, 7.5vw, 6.5rem)` | -0.045em | Hero typewriter greeting |
+| Section H2 | `--font-mono` | 700 | `text-3xl md:text-5xl` | -0.02em | Section titles |
+| Article H3 | `--font-display` | 400 italic | `text-2xl md:text-3xl` | 0 | Hero subtitle |
+| Body | `--font-body` | 400 | `text-base md:text-lg` | 0 | Paragraphs |
+| Caption | `--font-mono` | 500 | `text-xs` | 0.08em (uppercase) | Tags, stats labels, buttons |
+| Code | `--font-mono` | 400 | `text-xs md:text-sm` | 0 | `.code-window`, `.tk-*` tokens |
+
+### 4.3 Keyframes (8 total)
+
+| Name | File:Line | Duration | Purpose |
+|---|---|---|---|
+| `drift` | globals.css:144 | 16s ease-in-out infinite | Ambient float-dot orbs |
+| `blink` | globals.css:188 | 1s steps(1) infinite | Typewriter cursor + logo cursor |
+| `pulse` | globals.css:300 | 2s ease-in-out infinite | Stat dot pulse |
+| `flashUp` | globals.css:313 | 0.7s ease | GitHub stats increment flash |
+| `flash` | globals.css:554 | 0.7s ease | Copy button "copied" flash |
+| `scroll` | globals.css:681 | 40s linear infinite | Marquee |
+| (implicit) | — | — | `transition: width 0.35s` on `.hover-link::after` |
+| (implicit) | — | — | `transition: transform 0.45s` on `.article-card` |
+
+### 4.4 Custom `@utility`-Equivalent Component Classes
+
+Tailwind v4 component classes live in `globals.css` (no `@utility` directive — they're plain CSS classes scoped under `@layer components` implicitly). The full list, ported verbatim from the mockup:
+
+| Class | Mockup Lines | Purpose |
+|---|---|---|
+| `.progress-bar` | 107-116 | Top scroll-progress bar (z-index 100) |
+| `.bg-grid` | 118-125 | Background grid pattern (56px grid) |
+| `.float-dot` | 127-140 | Ambient blurred orb (drift animation) |
+| `.mouse-glow` | 142-154 | Radial-gradient cursor follow |
+| `.cursor::after` | 156-187 | Typewriter cursor (blink animation) |
+| `.logo-cursor` | 199-207 | Logo block cursor |
+| `.hover-link` | 176-233 | Text link with animated underline |
+| `.theme-toggle` + `.theme-btn` | 194-268 | 3-way theme switch pill |
+| `.stat-pill` + `.stat-dot` | 221-325 | GitHub stats pill with live dot |
+| `.tag` | 257-342 | Issue number + post tag chip |
+| `.btn-primary` | 272-381 | Solid accent button with shimmer sweep |
+| `.btn-secondary` | 383-405 | Outlined accent button |
+| `.article-card` | 331-487 | Recent-notes card with hover lift |
+| `.code-window` + `.code-header` | 394-560 | macOS-style code container |
+| `.copy-btn` | 516-561 | Copy button with copied flash |
+| `.tk-key/.tk-str/.tk-fn/.tk-com/.tk-num/.tk-op/.tk-var` | 566-625 | Syntax highlighting tokens (per-theme) |
+| `.archive-item` + `.archive-title` | 630-666 | Archive list row with left-dot hover |
+| `.marquee-wrap` + `.marquee` | 671-688 | Marquee scroller (40s linear) |
+| `.reveal` + `.reveal.visible` | 716-726 | Scroll-reveal animation (opacity + translateY) |
+| `.input-field` | 731-749 | Form input with accent focus ring |
+
+### 4.5 Border Radius Scale
+
+| Token | Value | Usage |
+|---|---|---|
+| `--radius-sm` | 2px | Tags, small chips |
+| `--radius` / `--radius-md` | 4px | Buttons, inputs, code-window |
+| `--radius-lg` | 8px | Article cards |
+| `--radius-full` | 999px | Theme toggle, stat pills |
+
+### 4.6 Shadow Definitions
+
+Only two custom shadows:
+
+- `.article-card:hover` → `box-shadow: 0 24px 48px -20px rgba(0, 0, 0, 0.45)` (dark/cyber) or `0 24px 48px -20px rgba(26, 22, 16, 0.2)` (light). Override at `[data-theme='light'] .article-card:hover`.
+- `.code-window` → `box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.5)`.
+
+**Do not use Tailwind's default `shadow-md` / `shadow-lg` utilities** — they don't match the mockup. Use the component class or replicate the exact shadow.
+
+### 4.7 Theme Transition Animation
+
+When switching themes, the body gets a `.theme-anim` class for 700ms that applies a `transition: background-color 0.6s, color 0.6s, border-color 0.6s, fill 0.6s, box-shadow 0.6s !important` to all elements. After 700ms, the class is removed (so future transitions don't accidentally animate). See `apps/web/src/hooks/use-theme.ts:17-33`.
+
+---
+
+## 5. Component Architecture & Patterns
+
+### 5.1 The 5-Layer Golden Rule
+
+A layer may only import from layers *below* it (higher-numbered) or from its own layer. **Violations are review-blocking.**
+
+| Layer | Path | May NOT import |
+|---|---|---|
+| 0. proxy | `apps/web/src/middleware.ts` | DB, Drizzle, `@devlog/auth` root. Only `@devlog/auth/tokens` (pure crypto). |
+| 1. app | `apps/web/src/app/**` | `drizzle-orm`, `better-sqlite3`, `@devlog/db` directly — call features/lib instead. |
+| 2. features | `apps/web/src/features/**` | Other features' internals; `drizzle-orm` directly (use `@devlog/db/queries`). |
+| 3. domain | `apps/web/src/domain/**` | React, Drizzle, better-sqlite3, resend — pure TS only. |
+| 4. lib | `apps/web/src/lib/**` | (free pass — this is where Node-only deps live) |
+| Packages | `packages/{db,auth,email,types,config}/**` | (free pass — consumed via Layer 4 only) |
+
+**Dependency-cruiser enforcement:** Planned for Phase 8+ (not yet wired). Until then, violations are caught in code review.
+
+### 5.2 Component Directory Map
+
+| Directory | File Count | Purpose |
+|---|---|---|
+| `apps/web/src/components/` | 6 components | shadcn-style primitives: `tag.tsx`, `copy-button.tsx`, `hover-link.tsx`, `code-window.tsx`, `skip-link.tsx`, (test files co-located) |
+| `apps/web/src/features/landing/` | 11 components | Hero, Nav, Footer, Marquee, RecentNotes, SnippetShowcase, ArchivePreview, SubscribeSection, SubscribeToast, GitHubPill, ThemeToggle, HeroMouseGlow, HeroTypewriter, ProgressBar |
+| `apps/web/src/features/blog/` | 6 components | PostPage, CommentForm, CommentList, TagFilter, Pagination, ArchiveList, MdxComponents |
+| `apps/web/src/features/admin/` | 5 components | PostList, PostEditor, SubscriberList, CommentModeration, SettingsForm |
+| `apps/web/src/features/auth/` | 3 components | LoginForm, SignOutButton, (actions) |
+| `apps/web/src/features/subscribe/` | 2 files | `schema.ts` (Zod), `actions.ts` (Server Action) |
+
+### 5.3 Client vs Server Component Decision Tree
+
+```
+Does the component use state, effects, browser APIs, or event handlers?
+├── YES → 'use client' at the top
+└── NO  → Server Component (default)
+    └── Does it query the database directly?
+        ├── YES → Move the query to packages/db/src/queries.ts and call from the Server Component
+        └── NO  → Server Component is fine
+```
+
+**Rule of thumb:** If the component is purely presentational and receives props, it's a Server Component. The landing page (Hero, Marquee, RecentNotes, SnippetShowcase, ArchivePreview, SubscribeSection) is mostly Server Components with client sub-trees (`HeroMouseGlow`, `HeroTypewriter`, `ThemeToggle`, `GitHubPill`, `ProgressBar`).
+
+### 5.4 The `queries.ts` Boundary Pattern
+
+[`packages/db/src/queries.ts`](./packages/db/src/queries.ts) is the **only** place Drizzle queries are authored. Layer 1 (app) and Layer 2 (features) call queries from there:
+
+```typescript
+// ❌ FORBIDDEN — feature imports drizzle-orm directly
+import { eq } from 'drizzle-orm';
+import { db, schema } from '@/lib/db';
+const post = db.select().from(schema.posts).where(eq(schema.posts.slug, slug)).get();
+
+// ✅ Correct — feature imports from the boundary
+import { getPostBySlug } from '@devlog/db/queries';
+const post = await getPostBySlug(slug);
+```
+
+This centralizes query logic, makes testing easier (mock `@devlog/db` not Drizzle internals), and prevents Drizzle from leaking into Layer 1/2.
+
+### 5.5 Auth Patterns — `verifySession()` vs `auth()`
+
+| Context | Use | Why |
+|---|---|---|
+| `middleware.ts` (Edge) | `verifySessionToken(cookie)` from `@devlog/auth/tokens` | Edge Runtime can't import `@devlog/auth` (which pulls better-sqlite3). |
+| Server Action / Route Handler | `getSessionFromCookies()` or `requireAuthor()` from `@devlog/auth` | Full DB access — can verify the user exists and check role. |
+| Server Component (top of page) | `requireAuthor()` (throws `AuthorRequiredError` → caller does `notFound()` or `redirect('/admin/login')`) | Clean separation: throw → caller decides UX. |
+
+### 5.6 CTA Hierarchy Implementation
+
+Each CTA in the landing page is anchored to a CSS component class — **never** re-implemented with utility classes:
+
+```tsx
+// ✅ Correct
+<Link href="/#notes" className="btn-primary">read latest <span aria-hidden>→</span></Link>
+<Link href="/#about" className="btn-secondary"><span aria-hidden>≡</span> subscribe</Link>
+
+// ❌ FORBIDDEN — does not match mockup
+<Link className="bg-amber-500 px-6 py-3 rounded text-black font-mono uppercase">read latest</Link>
+```
+
+---
+
+## 6. Custom Hooks Deep Dive
+
+### 6.1 The 8 Custom Hooks
+
+All hooks live in [`apps/web/src/hooks/`](./apps/web/src/hooks/). Every one is `'use client'` and respects `prefers-reduced-motion`.
+
+| Hook | File | Purpose | Signature |
+|---|---|---|---|
+| `useTypewriter` | `use-typewriter.ts` | Type → pause → delete → advance cycle. Frozen on reduced motion. Pauses when tab hidden. | `(words: string[]) => string` |
+| `useTheme` | `use-theme.ts` | Reads/writes `<html data-theme>`, localStorage, and `devlog-theme` cookie. Wires `T` keyboard shortcut. | `() => { theme, setTheme, cycle }` |
+| `useMouseGlow` | `use-mouse-glow.ts` | Tracks mouse within a ref. Returns `{ ref, position, visible }`. No-op on reduced motion. | `() => { ref, position: {x,y}, visible }` |
+| `useReveal` | `use-reveal.ts` | IntersectionObserver that adds `.visible` class on enter. Disconnects after firing. Falls back to immediate reveal. | `<T>(options?) => RefObject<T \| null>` |
+| `useCopyToClipboard` | `use-copy-to-clipboard.ts` | Modern `navigator.clipboard.writeText` with hidden-`<textarea>` + `execCommand('copy')` fallback. `copied` resets after 1800ms. | `() => { copied, copy }` |
+| `useKeyboardShortcut` | `use-keyboard-shortcut.ts` | Listens for `keydown` with optional modifiers. Ignores when INPUT/TEXTAREA/contenteditable is focused. | `(key, handler, deps?, options?) => void` |
+| `useScrollProgress` | `use-scroll-progress.ts` | Returns 0-100 based on scroll position. Throttled via `requestAnimationFrame`. Lazy initializer for reduced-motion. | `() => number` |
+| `useGitHubStats` | `use-github-stats.ts` | Receives initial `{ stars, forks }` from server. Polls `/api/github-stats` + simulated +1 every 9s. Falls back on 4xx/5xx. | `(args: { initialStars, initialForks, poll? }) => GitHubRepoStats` |
+
+### 6.2 Implementation Details That Matter
+
+#### `useTypewriter` — `prefersReducedMotion` Freeze
+
+```typescript
+// use-typewriter.ts:35-37
+const [frozen] = useState(() =>
+  typeof window !== 'undefined' && prefersReducedMotion() ? (words[0] ?? '') : '',
+);
+```
+
+**Why:** We compute `frozen` once on the initial render (client-side only) so we don't need a `setState`-in-effect (which would trigger cascading renders under `react-hooks` v7's `set-state-in-effect` rule).
+
+**Cleanup pattern:** Every `setTimeout` is returned as `() => clearTimeout(t)` so the timer cancels on unmount or effect re-run.
+
+#### `useMouseGlow` — `passive: true` and Reduced-Motion Skip
+
+```typescript
+// use-mouse-glow.ts:44
+if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+```
+
+**Why:** When the user has reduced motion on, we don't attach any listeners — the glow stays invisible. This is more efficient than attaching and just not updating state.
+
+#### `useReveal` — Disconnect After Firing
+
+```typescript
+// use-reveal.ts:46-48
+if (entry.isIntersecting) {
+  entry.target.classList.add('visible');
+  observer.disconnect();  // no repeat animation
+}
+```
+
+**Why:** The mockup specifies reveal-once semantics. Re-firing on every scroll-into-view would feel janky.
+
+#### `useScrollProgress` — `requestAnimationFrame` Throttling
+
+```typescript
+// use-scroll-progress.ts:32-41
+function onScroll() {
+  if (raf) return;
+  raf = requestAnimationFrame(() => {
+    const scrollTop = window.scrollY;
+    const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+    const next = docHeight > 0 ? (scrollTop / docHeight) * 100 : 0;
+    setProgress(Math.min(100, Math.max(0, next)));
+    raf = 0;
+  });
+}
+window.addEventListener('scroll', onScroll, { passive: true });
+```
+
+**Why:** Without rAF throttling, `scroll` fires dozens of times per second. `passive: true` lets the browser do native scrolling without waiting for our handler.
+
+#### `useCopyToClipboard` — Legacy Fallback
+
+```typescript
+// use-copy-to-clipboard.ts:48-69
+// Legacy fallback: hidden textarea + execCommand.
+const ta = document.createElement('textarea');
+ta.value = text;
+ta.setAttribute('readonly', '');
+ta.style.position = 'fixed';
+ta.style.opacity = '0';
+ta.style.left = '-9999px';
+document.body.appendChild(ta);
+ta.select();
+const ok = document.execCommand('copy');
+document.body.removeChild(ta);
+```
+
+**Why:** `navigator.clipboard.writeText` is only available in HTTPS contexts. The legacy fallback handles HTTP dev envs and older Safari.
+
+#### `useGitHubStats` — Capture Initial Snapshot in Catch Path
+
+```typescript
+// use-github-stats.ts:46
+const initialSnapshot = { stars: initialStars, forks: initialForks };
+```
+
+**Why:** If we just referenced `initialStars` in the catch block, the effect's dependency array `[poll]` wouldn't capture changes. The snapshot avoids re-triggering the effect when state changes.
+
+### 6.3 SSR Safety
+
+Every hook that touches `window` or `document` checks `typeof window !== 'undefined'` (or uses `useState(() => ...)` lazy initializer) so the first server-rendered HTML matches the client-rendered HTML. **Hydration mismatches are review-blocking.**
+
+---
+
+## 7. Content Management & Data Ingestion
+
+### 7.1 Static Data Files
+
+| File | Type | Purpose | Count |
+|---|---|---|---|
+| `apps/web/content/snippets/*.mdx` | MDX | Code snippets (e.g. `use-typewriter.mdx`, `use-mouse-glow.mdx`) | 5 |
+| `apps/web/content/posts/*.mdx` | MDX | Full essays | 3 (seeded) |
+| `packages/db/src/seed.ts` | TS | Seeds the SQLite DB with mockup content (3 posts, 6 archive items, 5 snippets, 1 author row in `siteSettings`) | 1 file |
+
+### 7.2 Adding a New Post
+
+1. Create `apps/web/content/posts/<slug>.mdx` with frontmatter (title, excerpt, publishedAt, tags).
+2. (Optional) Add a row to `packages/db/src/seed.ts` so the post appears in the dev seed.
+3. Run `pnpm db:seed` to re-seed the dev DB.
+4. In production: insert the row via the admin post editor at `/admin/posts/new`.
+
+**Affected files:** 1 MDX + optionally `seed.ts`. **Do not touch** `packages/db/src/schema.ts`, route files, or component files.
+
+### 7.3 Adding a New Snippet
+
+Same flow but in `apps/web/content/snippets/<slug>.mdx`. The `/snippets` and `/snippets/[slug]` routes auto-discover MDX files via the file system (Next.js `pageExtensions` includes `mdx`).
+
+### 7.4 Why `import.meta.glob` Is NOT Used
+
+Astro/Vite patterns use `import.meta.glob('./content/**/*.mdx')` to enumerate content at build time. **Next.js doesn't have this** — instead, MDX files in `app/` are routes themselves (if they match `pageExtensions`), and content in `content/` is read via the file system from Server Components or via `next-mdx-remote` (not currently used). For dynamic routes (`/posts/[slug]`), the page reads from the DB, not the file system.
+
+### 7.5 MDX Rendering
+
+The `/posts/[slug]` route renders MDX via `apps/web/src/lib/mdx.tsx` which compiles MDX → React elements at request time (or build time for static routes). The `mdx-components.tsx` file in `features/blog/` maps HTML elements (h1, p, pre, code) to project components (so `<pre>` uses `.code-window` styling, `<code>` uses `.tk-*` syntax tokens).
+
+### 7.6 Seeding the Database
+
+```bash
+pnpm db:seed   # Runs packages/db/src/seed.ts
+```
+
+The seed script:
+1. Deletes existing rows in `users`, `posts`, `tags`, `postsToTags`, `subscribers`, `comments`, `siteSettings`.
+2. Inserts 1 author (Alex Rivera, role='author').
+3. Inserts 3 posts with mockup content (one per status: draft, published, archived).
+4. Inserts 4 tags and links them via `postsToTags`.
+5. Inserts 1 row in `siteSettings` (id=1, the single-row table).
+6. Prints a summary.
+
+---
+
+## 8. Accessibility (WCAG AAA) Implementation
+
+### 8.1 Color Contrast
+
+| Theme | Foreground | Background | Ratio | WCAG Level |
+|---|---|---|---|---|
+| Dark | `#f0ead6` (fg) | `#0c0b09` (bg) | 16.2:1 | AAA |
+| Dark | `#c9c1ad` (fg-dim) | `#0c0b09` (bg) | 11.8:1 | AAA |
+| Dark | `#8a8275` (muted) | `#0c0b09` (bg) | 6.1:1 | AA (Large) / AAA fails for small text — muted is for ≥14px only |
+| Light | `#1a1610` (fg) | `#f3ecdc` (bg) | 13.1:1 | AAA |
+| Light | `#3d362b` (fg-dim) | `#f3ecdc` (bg) | 9.8:1 | AAA |
+| Light | `#6b6358` (muted) | `#f3ecdc` (bg) | 4.9:1 | AA |
+| Cyber | `#4eff96` (fg) | `#02060a` (bg) | 13.4:1 | AAA |
+| Cyber | `#8affb8` (fg-dim) | `#02060a` (bg) | 11.2:1 | AAA |
+| Cyber | `#2a8a5e` (muted) | `#02060a` (bg) | 4.8:1 | AA |
+
+**`--muted` is restricted to font sizes ≥14px** to stay within WCAG AA. Never use `text-muted` for body copy.
+
+### 8.2 Focus Ring Specification
+
+Defined in `globals.css` and via Tailwind utilities on the skip-link:
+
+```css
+/* globals.css:743-746 */
+.input-field:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--glow);  /* 3px accent-tinted halo */
+}
+```
+
+```tsx
+// apps/web/src/app/layout.tsx:88-92 (skip-link focus state)
+<a
+  href="#main"
+  className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded focus:border focus:border-[var(--accent)] focus:bg-[var(--bg)] focus:px-4 focus:py-2 focus:font-mono focus:text-sm focus:text-[var(--accent)]"
+>
+  skip to content
+</a>
+```
+
+### 8.3 Skip-to-Content Link
+
+The root layout (`apps/web/src/app/layout.tsx`) renders a visually-hidden skip link as the first focusable element. On focus it becomes visible (fixed top-left, accent border, mono font).
+
+### 8.4 `prefers-reduced-motion` Implementation
+
+```css
+/* globals.css:766-773 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+```
+
+Plus per-hook checks (`useTypewriter`, `useMouseGlow`, `useReveal`, `useScrollProgress`, `useGitHubStats`) that skip attaching listeners entirely when reduced motion is on — more efficient than the global CSS rule alone.
+
+### 8.5 Touch Target Sizes
+
+The smallest interactive elements:
+
+- `.theme-btn` → 32×32px (Borderline — meets Apple's 44pt target via padding ring; below Material's 48dp. Documented as a known issue for Phase 8 hardening.)
+- `.btn-primary` / `.btn-secondary` → 13px×22px padding + 12px text → ~44px tall. ✅
+- `.stat-pill` → 7px×14px padding + 12px text → ~32px tall (meets minimum target).
+- `.copy-btn` → 5px×11px padding + 11px text → ~28px tall (below 44px threshold — known issue for Phase 8).
+
+### 8.6 ARIA Patterns
+
+| Component | ARIA | Pattern |
+|---|---|---|
+| Skip link | `sr-only` + `focus:not-sr-only` | Visually hidden until focused |
+| Theme toggle | (planned) `role="radiogroup"` + `aria-label` | 3 buttons, one `aria-pressed="true"` |
+| Article card | (whole card is clickable via `<Link>`) | No `role="button"` — use semantic `<a>` |
+| Code window | `aria-hidden="true"` on traffic-light dots | Decorative |
+| Comment form | `aria-live="polite"` on error region | Form errors announced |
+| Stat pill | `<a>` wrapping (link to GitHub repo) | Semantic anchor, no `role="button"` |
+
+### 8.7 Verified With
+
+- Lighthouse a11y score: 100 (target ≥95 maintained as design budget).
+- Manual keyboard-only navigation through the landing page (Tab, Enter, `T` for theme).
+- `prefers-reduced-motion: reduce` emulation via DevTools → all animations skip, content still readable.
+
+---
+
+## 9. Anti-Patterns & Common Bugs
+
+### 9.1 AP-1: Importing `@devlog/auth` (root) in `middleware.ts` (Critical)
+
+**Symptom:** Build fails with `better-sqlite3` error in the Edge Runtime bundle:
+```
+Error: better-sqlite3 is not defined
+  at Object.<anonymous> (middleware.ts)
+```
+
+**Root cause:** `@devlog/auth` (root, `packages/auth/src/index.ts`) imports `'server-only'` + `@devlog/db` + `drizzle-orm`. The Edge Runtime can't bundle `better-sqlite3` (it's a native Node addon).
+
+**Fix:** Import from `@devlog/auth/tokens` instead — it's pure Web Crypto (`createHmac`, `timingSafeEqual`) with no Node-only deps:
+
+```typescript
+// ❌ FORBIDDEN — pulls better-sqlite3 into the edge bundle
+import { verifySessionToken } from '@devlog/auth';
+
+// ✅ Correct — pure crypto, edge-safe
+import { SESSION_COOKIE, verifySessionToken } from '@devlog/auth/tokens';
+```
+
+**Lesson:** The split between `packages/auth/src/index.ts` (full Better Auth) and `packages/auth/src/tokens.ts` (pure crypto) is **non-negotiable** for the Edge Runtime. ADR-002 in the PAD documents this decision.
+
+### 9.2 AP-2: Using `enum` or `namespace` (Critical)
+
+**Symptom:** `tsc` fails with:
+```
+error TS1287: 'enum' declarations are not allowed when 'erasableSyntaxOnly' is enabled.
+```
+
+**Root cause:** `tsconfig.base.json` sets `erasableSyntaxOnly: true`. This flag (added in TS 5.8) forbids any syntax that can't be erased by the type checker — `enum`, `namespace`, parameter properties, etc.
+
+**Fix:** Use `as const` + union types:
+
+```typescript
+// ❌ FORBIDDEN
+enum Role { Author = 'author', Subscriber = 'subscriber' }
+enum Status { Draft = 'draft', Published = 'published' }
+
+// ✅ Correct
+const Role = { Author: 'author', Subscriber: 'subscriber' } as const;
+type Role = (typeof Role)[keyof typeof Role];
+
+const Status = { Draft: 'draft', Published: 'published', Archived: 'archived' } as const;
+type Status = (typeof Status)[keyof typeof Status];
+```
+
+**Lesson:** Drizzle's `text('role', { enum: ['author', 'subscriber'] })` syntax is fine — it's a Drizzle helper, not a TS `enum`. The two are unrelated.
+
+### 9.3 AP-3: Using `as any` (Critical)
+
+**Symptom:** ESLint fails with `Unexpected use of 'as any'` (rule `no-restricted-syntax`).
+
+**Root cause:** `packages/config/eslint/base.mjs` blocks `as any` — it's the #1 type-safety leak.
+
+**Fix:** Use `unknown` + narrow, or `satisfies`:
+
+```typescript
+// ❌ FORBIDDEN
+const value = JSON.parse(input) as any;
+value.someMethod();
+
+// ✅ Correct — narrow with type guards
+const value: unknown = JSON.parse(input);
+if (typeof value === 'object' && value !== null && 'someMethod' in value) {
+  // value is now narrowed
+}
+
+// ✅ Correct — use satisfies for type-checking without widening
+const config = { retries: 3 } satisfies Config;
+```
+
+### 9.4 AP-4: Default Exports in `apps/web/src/**` (High)
+
+**Symptom:** ESLint warning + harder-to-grep codebase.
+
+**Root cause:** The project enforces named exports only in `apps/web/src/**` (per the project conventions). Default exports are anonymous at the import site.
+
+**Fix:**
+
+```typescript
+// ❌ Avoid
+export default function Hero() { ... }
+
+// ✅ Correct
+export function Hero() { ... }
+```
+
+### 9.5 AP-5: Using `enum`-style TS enums (High) — same as AP-2
+
+(See AP-2.)
+
+### 9.6 AP-6: Reading `process.env.FOO` Directly in Feature/Component Code (High)
+
+**Symptom:** Variable is `undefined` in production. No Zod validation. No type safety.
+
+**Root cause:** Public vars (`NEXT_PUBLIC_*`) are inlined by Next.js at build time — they work. But server-side vars are NOT inlined and must be read via the validated env module.
+
+**Fix:** Use `apps/web/src/lib/env.ts`:
+
+```typescript
+// ❌ FORBIDDEN
+const apiKey = process.env.RESEND_API_KEY;
+
+// ✅ Correct
+import { env } from '@/lib/env';
+const apiKey = env.RESEND_API_KEY;  // typed, validated, throws at boot if missing
+```
+
+**Exception:** Public vars (`NEXT_PUBLIC_*`) can be read directly in client components because Next.js inlines them. But for consistency, prefer `env.NEXT_PUBLIC_*` in lib code.
+
+### 9.7 AP-7: Arbitrary Tailwind Values (Medium)
+
+**Symptom:** Color drift from the mockup.
+
+**Root cause:** `text-[#f59e0b]` looks like `text-accent` but won't update if the theme's accent token changes.
+
+**Fix:** Use the design token:
+
+```tsx
+// ❌ Avoid
+<span className="text-[#f59e0b]">accent text</span>
+
+// ✅ Correct
+<span className="text-accent">accent text</span>
+```
+
+### 9.8 AP-8: Using Framer Motion / GSAP (High)
+
+**Symptom:** Bundle size balloons; Lighthouse score drops below 95.
+
+**Root cause:** CSS-only animation is the design budget. JS animation libraries add 30-50kb and trigger main-thread work.
+
+**Fix:** Use `@keyframes` + `transition` in `globals.css`. See §4.3 for the 8 keyframes.
+
+### 9.9 AP-9: `vi.fn()` Inside `vi.mock()` Factory Referencing Outer Scope (Critical)
+
+**Symptom:** Vitest throws `Cannot access X before initialization` at test setup.
+
+**Root cause:** `vi.mock()` is hoisted above imports by Vitest's transform. Outer-scope variables aren't available inside the factory function.
+
+**Fix:** Inline everything, or use `vi.hoisted()`:
+
+```typescript
+// ❌ FORBIDDEN — outer scope reference
+const mockFn = vi.fn();
+vi.mock('@/lib/db', () => ({ db: { query: mockFn } }));
+
+// ✅ Correct — inline
+vi.mock('@/lib/db', () => {
+  const mockFn = vi.fn();
+  return { db: { query: mockFn } };
+});
+
+// ✅ Correct — vi.hoisted for shared state
+const { mockFn } = vi.hoisted(() => ({ mockFn: vi.fn() }));
+vi.mock('@/lib/db', () => ({ db: { query: mockFn } }));
+```
+
+### 9.10 AP-10: JSX in `.test.ts` Files (Medium)
+
+**Symptom:** TypeScript fails to parse `.test.ts` files containing JSX.
+
+**Root cause:** The file extension determines the parser. `.ts` doesn't enable JSX; `.tsx` does.
+
+**Fix:** Rename the file to `.test.tsx`:
+
+```bash
+mv lib/foo.test.ts lib/foo.test.tsx
+```
+
+### 9.11 AP-11: Using Tailwind's `shadow-lg` Instead of Mockup Shadows (Medium)
+
+**Symptom:** Article card hover shadow looks wrong on light theme.
+
+**Root cause:** Tailwind's `shadow-lg` is `0 10px 15px -3px rgba(0,0,0,0.1)`. The mockup specifies `0 24px 48px -20px rgba(0,0,0,0.45)` (with a light-theme override).
+
+**Fix:** Use the `.article-card` component class (which has the correct shadow), or replicate the exact shadow:
+
+```tsx
+// ✅ Correct — use the component class
+<div className="article-card">...</div>
+
+// ✅ Correct — explicit shadow
+<div style={{ boxShadow: '0 24px 48px -20px rgba(0, 0, 0, 0.45)' }}>...</div>
+```
+
+### 9.12 AP-12: Forgetting `passive: true` on `scroll` / `touchmove` Listeners (Medium)
+
+**Symptom:** Mobile scroll feels janky; Chrome DevTools warns about passive listener violations.
+
+**Root cause:** Without `passive: true`, the browser waits for the handler to finish before native scrolling can start.
+
+**Fix:** Always pass `{ passive: true }`:
+
+```typescript
+window.addEventListener('scroll', onScroll, { passive: true });
+```
+
+### 9.13 AP-13: Modifying `skills/**` (Medium)
+
+**Symptom:** Skill files diverge from the canonical source.
+
+**Root cause:** `skills/` is **read-only** — it contains reference skills (claude-md, agents-md, readme-md, etc.) used to generate project docs. They are not part of the project.
+
+**Fix:** Treat `skills/**` as immutable. If a skill is broken, fix it upstream (in the skills repo), not in this project.
+
+---
+
+## 10. Debugging Guide
+
+### 10.1 Build Failures
+
+| Error | Cause | Fix |
+|---|---|---|
+| `better-sqlite3 is not defined` in middleware | Imported `@devlog/auth` (root) instead of `@devlog/auth/tokens` | Change import to `@devlog/auth/tokens` (see AP-1) |
+| `error TS1287: 'enum' declarations are not allowed` | Used `enum` / `namespace` | Use `as const` + union types (see AP-2) |
+| `error TS2571: Object is of type 'unknown'` | `noUncheckedIndexedAccess` returns `T \| undefined` | Narrow the type with type guards or use optional chaining |
+| `Cannot find module '@devlog/db'` | Path alias not resolving | Check `tsconfig.base.json#paths` includes `@devlog/db`; run `pnpm install` to link the workspace |
+| `Hydration failed: server HTML doesn't match client` | Theme or initial state mismatch | Check that hooks use lazy initializers (`useState(() => ...)`) for window/document access |
+| `Error: ENOSPC: no space left on device` in dev | HMR accumulated stale SQLite handles (fixed by globalThis cache in `packages/db/src/client.ts`) | Restart `pnpm dev` — the globalThis cache should prevent recurrence |
+
+### 10.2 Runtime Errors
+
+| Error | Cause | Fix |
+|---|---|---|
+| `Error: Invalid environment variables` at boot | Zod env validation failed in prod | Check `.env.local` (dev) or deploy env vars (prod). Required: `BETTER_AUTH_SECRET` (32+), `SIGNED_TOKEN_SECRET` (32+) |
+| `Error: invalid or expired token` on `/api/confirm` | HMAC verification failed | Verify `SIGNED_TOKEN_SECRET` matches across env. Tokens are signed with this key. |
+| `Error: AUTHOR_REQUIRED` in admin route | User is not signed in or not an author | Catch `AuthorRequiredError` and `redirect('/admin/login')` or `notFound()` |
+| `Error: Too many comments. Try again later.` | Rate limit hit (10 per IP per hour) | Wait 1 hour or restart the dev server (clears in-memory bucket via `__resetRateLimit()` in tests) |
+| Resend: `RESEND_API_KEY not configured. Email not sent.` | No API key in env | Set `RESEND_API_KEY=re_test_...` in `.env.local`. Dev sandbox accepts test keys. |
+
+### 10.3 Test Failures
+
+| Error | Cause | Fix |
+|---|---|---|
+| `Cannot access X before initialization` | `vi.mock()` factory references outer-scope vars | Inline the factory or use `vi.hoisted()` (see AP-9) |
+| `SyntaxError: Unexpected token '<'` in `.test.ts` | JSX in `.ts` file | Rename to `.test.tsx` (see AP-10) |
+| `Hydration mismatch` snapshot test failure | `useEffect`-driven state change before paint | Use `useState(() => ...)` lazy initializer for SSR-unsafe values |
+| `Mock not called` despite `vi.mock` | Mock factory not hoisted properly | Make sure `vi.mock` is at the top level (not inside `describe` / `it`) |
+| `ReferenceError: __dirname is not defined` in test | Edge Runtime code tested in jsdom | Use `process.cwd()` or `new URL(import.meta.url)` |
+
+### 10.4 Visual / Styling Issues
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Theme switch animates too slowly / quickly | `.theme-anim` body class stays applied beyond 700ms | Check `use-theme.ts:23` — the `setTimeout(700ms)` removes the class |
+| Article card hover shadow wrong on light theme | Used `shadow-lg` instead of mockup shadow | Use the `.article-card` component class (see AP-11) |
+| Syntax highlight colors wrong on cyber theme | `.tk-*` overrides missing for cyber | Check `globals.css:589-606` — cyber overrides exist for all 6 tokens |
+| Mouse glow doesn't follow cursor | `useMouseGlow` listeners not attached | Check that `prefers-reduced-motion: reduce` is OFF (the hook skips attaching listeners otherwise) |
+| Marquee doesn't scroll | Animation not applied — check `globals.css:671-688` | Ensure `.marquee-wrap` and `.marquee` classes are present on parent + child |
+| Scroll progress bar stuck at 0 | `useScrollProgress` returned 0 due to reduced motion | That's expected behavior — the bar is static for reduced-motion users |
+
+### 10.5 Live-Site Verification Commands
+
+```bash
+# Verify the production build boots locally
+pnpm build && cd apps/web/.next/standalone && node server.js
+
+# Smoke test the public routes
+curl -sI http://localhost:3000/ | head -1                          # 200
+curl -sI http://localhost:3000/rss.xml | head -1                    # 200, application/rss+xml
+curl -sI http://localhost:3000/sitemap.xml | head -1               # 200, application/xml
+curl -sI http://localhost:3000/robots.txt | head -1                # 200
+curl -sI http://localhost:3000/admin                              # 307 redirect to /admin/login
+curl -s http://localhost:3000/api/github-stats | jq .              # { stars, forks }
+curl -s 'http://localhost:3000/api/confirm?token=invalid.abc'       # 400 invalid or expired token
+
+# Verify security headers
+curl -sI http://localhost:3000/ | grep -iE '(csp|x-content-type|x-frame|referrer|permissions-policy|strict-transport)'
+
+# Verify CSP allows GitHub + Resend
+curl -sI http://localhost:3000/ | grep -i 'content-security-policy'
+# Expected: default-src 'self'; ... connect-src 'self' https://api.github.com https://api.resend.com ...
+```
+
+---
+
+## 11. Pre-Ship Checklist
+
+### 11.1 Quality Gate Commands (run in order)
+
+```bash
+pnpm check-types   # 0 errors across 5 packages
+pnpm lint          # 0 errors (3 pre-existing warnings acceptable)
+pnpm test          # 154+ tests passing
+pnpm build         # Standalone build at apps/web/.next/standalone/
+
+# Or all at once:
+pnpm check         # = check-types && lint && test && build
+```
+
+**Never push if any of these fail.** All four must be green.
+
+### 11.2 CI Guard Details (planned for Phase 8)
+
+Not yet wired. When added, CI will run the above 4 commands + `pnpm audit --prod` (with documented exceptions for the 3 critical transitive Next.js vulnerabilities).
+
+### 11.3 Pre-Deployment Env Validation
+
+```bash
+# Verify required env vars are set in the deploy environment
+node -e "
+const EnvSchema = require('./apps/web/src/lib/env.ts').EnvSchema;
+const parsed = EnvSchema.safeParse(process.env);
+if (!parsed.success) {
+  console.error('Missing env vars:', parsed.error.issues);
+  process.exit(1);
+}
+console.log('Env OK');
+"
+```
+
+Required in prod: `BETTER_AUTH_SECRET` (32+ chars), `SIGNED_TOKEN_SECRET` (32+ chars). Optional: `RESEND_API_KEY`, `CRON_SECRET`.
+
+### 11.4 Post-Deployment Smoke Tests
+
+Run the live-site verification commands in §10.5 against the deployed URL. Specifically:
+
+- `/` returns 200 with the landing page.
+- `/rss.xml` returns 200 with `Content-Type: application/rss+xml`.
+- `/sitemap.xml` returns 200 with `Content-Type: application/xml`.
+- `/robots.txt` returns 200.
+- `/admin` returns 307 redirect to `/admin/login`.
+- `/api/github-stats` returns 200 with JSON body.
+- `/api/confirm?token=invalid.abc` returns 400.
+
+### 11.5 Security Verification Checklist
+
+- [ ] `BETTER_AUTH_SECRET` is 32+ chars (use `openssl rand -hex 32`).
+- [ ] `SIGNED_TOKEN_SECRET` is 32+ chars.
+- [ ] `RESEND_FROM` is on a verified Resend domain (prod).
+- [ ] `NEXT_PUBLIC_SITE_URL` matches the deploy URL (for RSS/OG tags).
+- [ ] CSP allows only `https://api.github.com` and `https://api.resend.com` for `connect-src`.
+- [ ] `X-Frame-Options: DENY` is set (clickjacking protection).
+- [ ] `Referrer-Policy: strict-origin-when-cross-origin` is set.
+- [ ] `Permissions-Policy` disables camera, microphone, geolocation, browsing-topics.
+- [ ] `Strict-Transport-Security` is set with `max-age=63072000; includeSubDomains; preload`.
+- [ ] No `process.env.*` direct reads in feature/component code (use `apps/web/src/lib/env.ts`).
+- [ ] No `as any` (lint blocks it — run `pnpm lint` to verify).
+- [ ] No `enum` / `namespace` (erasableSyntaxOnly blocks it — `pnpm check-types` verifies).
+- [ ] No default exports in `apps/web/src/**` (lint warns — fix before push).
+
+### 11.6 Visual Verification Checklist
+
+- [ ] Landing page matches `landing_page_mockup.html` pixel-for-pixel in dark theme.
+- [ ] Switching to light theme: all colors transition in 700ms.
+- [ ] Switching to cyber theme: CRT scanlines visible, syntax tokens change.
+- [ ] Typewriter cycles through greetings (dark/light); frozen on reduced motion.
+- [ ] Marquee scrolls continuously.
+- [ ] Article cards lift on hover with the correct shadow.
+- [ ] Code window copy button flashes on click.
+- [ ] Scroll progress bar fills as you scroll.
+- [ ] Mobile (375px width): hero text scales down via `clamp(2.5rem, 7.5vw, 6.5rem)`, grid collapses to 2 columns.
+- [ ] Keyboard: Tab cycles through interactive elements; skip link appears on first Tab.
+
+---
+
+## 12. Lessons Learnt & How to Avoid Them
+
+### 12.1 L1 — The Edge Runtime Auth Split (Phase 6)
+
+**What happened:** Phase 6 added `middleware.ts` to guard `/admin/*`. Initial implementation imported `verifySessionToken` from `@devlog/auth` (root). Build failed with `better-sqlite3 is not defined`.
+
+**Why it mattered:** The Edge Runtime can't bundle native Node addons like `better-sqlite3`. The full `@devlog/auth` package transitively imports it via `@devlog/db`.
+
+**How to avoid:** The split between `packages/auth/src/index.ts` (full Better Auth + Drizzle) and `packages/auth/src/tokens.ts` (pure Web Crypto) is **architectural**. The middleware can only import `@devlog/auth/tokens`. See ADR-002 in the PAD.
+
+### 12.2 L2 — The `erasableSyntaxOnly` Migration (Phase 1)
+
+**What happened:** Phase 1 set up `tsconfig.base.json` with `erasableSyntaxOnly: true` (TS 5.8+ flag). Existing code using `enum` failed to compile.
+
+**Why it mattered:** `erasableSyntaxOnly` forces the type checker to fully erase types at runtime — no `enum` (which compiles to a runtime object), no `namespace` (which compiles to an IIFE), no parameter properties.
+
+**How to avoid:** Use `as const` objects + union types. Documented in §9.2 (AP-2). Drizzle's `text('role', { enum: [...] })` is a Drizzle helper, not a TS `enum` — it's fine.
+
+### 12.3 L3 — The Hydration Mismatch (Phase 3)
+
+**What happened:** Phase 3 added the theme cookie pattern (read cookie server-side → emit `data-theme` attribute → inline `<head>` script syncs cookie with localStorage). First render sometimes mismatched because `useThemeStore` read from `document.documentElement` synchronously on mount.
+
+**Why it mattered:** React hydration mismatches cause runtime warnings and can break interactivity.
+
+**How to avoid:** Use lazy initializers (`useState(() => ...)` for SSR-unsafe values) and `suppressHydrationWarning` on the `<html>` tag (because we intentionally let the inline script mutate it post-hydration). See `apps/web/src/app/layout.tsx:82`.
+
+### 12.4 L4 — The Drizzle Client Global Cache (Phase 2)
+
+**What happened:** Phase 2 added the Drizzle client. In dev, Next.js hot-reloads modules — without a `globalThis` cache, every reload created a new `better-sqlite3` instance, eventually exhausting file handles.
+
+**Why it mattered:** Dev server crashed with `Error: SQLITE_BUSY` or `EMFILE` after ~20 HMR cycles.
+
+**How to avoid:** The `globalThis.__devlog_db` cache in `packages/db/src/client.ts:25-29` survives hot reloads. Always use the `globalThis` pattern for singleton Node resources in Next.js dev.
+
+### 12.5 L5 — The Lazy DB Proxy (Phase 2)
+
+**What happened:** Phase 2 added the lazy DB proxy. Initial implementation opened the SQLite file at module load. Build failed because `apps/web/devlog.db` didn't exist at build time.
+
+**Why it mattered:** `pnpm build` evaluates route modules for type collection — if any module opens a DB at top-level, the build tries to open a file that doesn't exist.
+
+**How to avoid:** The Proxy pattern in `packages/db/src/client.ts:58-69` defers client creation until the first query. Importing `db` no longer opens a file; the file opens only when a query runs.
+
+### 12.6 L6 — The Vitest Mock Hoisting Trap (Phase 5)
+
+**What happened:** Phase 5 added the comment Server Action. The test mocked `@/lib/rate-limit` with a factory referencing an outer-scope `vi.fn()`. Vitest threw `Cannot access X before initialization`.
+
+**Why it mattered:** `vi.mock()` is hoisted above imports by Vitest's transform — outer-scope variables aren't available inside the factory.
+
+**How to avoid:** Inline everything inside the factory, or use `vi.hoisted()` for shared state. See §9.9 (AP-9).
+
+### 12.7 L7 — The `set-state-in-effect` Rule (Phase 3)
+
+**What happened:** Phase 3 added `useTypewriter`. Initial implementation called `setDeleting(true)` synchronously inside the effect. React 19's `react-hooks` plugin (v7 ruleset) flagged it as a cascading render.
+
+**Why it mattered:** Synchronous `setState` in effects causes an extra render cycle before the browser paints. The v7 rule surfaces this.
+
+**How to avoid:** Wrap deferred state changes in `setTimeout` so they don't trigger the rule:
+
+```typescript
+// ❌ Avoid — triggers react-hooks/set-state-in-effect
+useEffect(() => {
+  setDeleting(true);  // synchronous
+}, [text]);
+
+// ✅ Correct — deferred
+useEffect(() => {
+  const t = setTimeout(() => setDeleting(true), PAUSE_AT_FULL_MS);
+  return () => clearTimeout(t);
+}, [text]);
+```
+
+### 12.8 L8 — The Resend Sandbox Mode (Phase 5)
+
+**What happened:** Phase 5 added the Resend wrapper. Initial implementation threw if `RESEND_API_KEY` was unset. Dev server crashed on first subscribe attempt.
+
+**Why it mattered:** Dev environments shouldn't require a real Resend key.
+
+**How to avoid:** `packages/email/src/send.ts:91-98` returns `{ ok: false, skipped: true }` when no API key. The subscribe flow degrades gracefully — the subscriber row is still inserted, but no email is sent. Documented in PAD §3.3 Pattern 6.
+
+### 12.9 L9 — The Single-Row `siteSettings` Invariant (Phase 7)
+
+**What happened:** Phase 7 added the admin settings form. Initial seed script could insert multiple rows into `siteSettings`. The form started reading the wrong row.
+
+**Why it mattered:** `siteSettings` is a singleton (id=1). The schema declares `id: integer('id').primaryKey().default(1)` but SQLite doesn't enforce "no second row".
+
+**How to avoid:** The application layer enforces "no second row" — `seed.ts` deletes existing rows before inserting. The settings form only updates `WHERE id = 1`. Documented in `packages/db/src/schema.ts:13`.
+
+### 12.10 L10 — The Mockup as Source of Truth (Phase 3)
+
+**What happened:** Phase 3 ported the landing page. Several attempts to "improve" the mockup (rounded corners on `.btn-primary`, different shadow on `.article-card`) caused visual regressions.
+
+**Why it mattered:** The mockup is the contract. Any deviation breaks the pixel-for-pixel requirement.
+
+**How to avoid:** Treat `landing_page_mockup.html` as immutable. Any visual change starts with updating the mockup, then propagating to `globals.css` and `packages/config/tailwind/base.css`. Documented in §1.2 and §4.
+
+### 12.11 L11 — The `noUncheckedIndexedAccess` Gotcha (Phase 4)
+
+**What happened:** Phase 4 added archive pagination. Code like `posts[0]` failed type-check because `noUncheckedIndexedAccess` returns `T | undefined`.
+
+**Why it mattered:** Array access doesn't guarantee existence at the type level. This forces explicit null checks.
+
+**How to avoid:** Always narrow after array access:
+
+```typescript
+const post = posts[0];
+if (!post) return null;  // explicit check
+// post is now Post (not Post | undefined)
+```
+
+### 12.12 L12 — The Cookie-Based Theme Sync (Phase 3)
+
+**What happened:** Phase 3 added the theme toggle. Initial implementation read theme from localStorage only — but Server Components can't read localStorage, so the server-rendered HTML always had the default theme.
+
+**Why it mattered:** First paint showed the wrong theme, then JS corrected it (FOUC).
+
+**How to avoid:** The cookie pattern (PAD §3.3 Pattern 1):
+1. Client sets `localStorage['devlog-theme']` AND `document.cookie = 'devlog-theme=...'`.
+2. Server reads the cookie in `RootLayout` and emits `<html data-theme="...">`.
+3. Inline `<head>` script syncs cookie with localStorage before hydration.
+
+See `apps/web/src/app/layout.tsx:60-97`.
+
+---
+
+## 13. Pitfalls to Avoid
+
+### 13.1 Architecture Pitfalls
+
+- **Don't put DB access in `middleware.ts`.** Edge Runtime can't bundle `better-sqlite3`. Use `@devlog/auth/tokens` for edge-safe auth.
+- **Don't import `@devlog/auth` (root) in `middleware.ts`.** Same reason — pulls in `@devlog/db` + `better-sqlite3`.
+- **Don't import `drizzle-orm` in Layer 1 (app) or Layer 2 (features).** Use `@devlog/db/queries` instead.
+- **Don't put React/JSX in Layer 3 (domain).** Domain is pure TS — Zod schemas, slugify, signed-token helpers.
+- **Don't put IO in Layer 3 (domain).** No `fetch`, no `fs`, no DB.
+
+### 13.2 TypeScript Pitfalls
+
+- **Don't use `any`.** Use `unknown` + narrow.
+- **Don't use `enum` or `namespace`.** Use `as const` + union types.
+- **Don't use default exports in `apps/web/src/**`.** Use named exports.
+- **Don't use `as any`.** Lint blocks it.
+- **Don't read `process.env.FOO` directly.** Use `apps/web/src/lib/env.ts`.
+
+### 13.3 Testing Pitfalls
+
+- **Don't use `vi.fn()` directly in `vi.mock()` factory** referencing outer scope. Inline or use `vi.hoisted()`.
+- **Don't put JSX in `.test.ts` files.** Use `.test.tsx`.
+- **Don't skip the failing test.** TDD order: RED → GREEN → REFACTOR.
+- **Don't use `vi.mock` inside `describe` / `it`.** It must be at the top level of the test file.
+
+### 13.4 Design System Pitfalls
+
+- **Don't add a 4th theme.** Design budget is closed (dark/light/cyber).
+- **Don't use `amber-400` or arbitrary hex values.** Use `text-accent` or extend `@theme`.
+- **Don't use `shadow-lg` or `shadow-md`.** Use the mockup shadow (see §4.6).
+- **Don't use Framer Motion / GSAP.** CSS-only animation is the rule.
+- **Don't modify `landing_page_mockup.html`.** It's the source of truth.
+- **Don't modify `skills/**`.** Read-only reference skills.
+
+### 13.5 Database Pitfalls
+
+- **Don't use `db:push` in production.** Always `db:generate` → review SQL → `db:migrate`.
+- **Don't hand-write row types.** Use `typeof posts.$inferSelect`.
+- **Don't open the DB at module load.** Use the lazy proxy (already wired in `packages/db/src/client.ts`).
+- **Don't use Postgres, Redis, or any DB other than SQLite.** Single file at `apps/web/devlog.db`.
+
+### 13.6 Security Pitfalls
+
+- **Don't read uncleaned user input.** Zod at every boundary.
+- **Don't roll your own JWT.** Use the HMAC token pattern in `@devlog/auth/tokens`.
+- **Don't log secrets.** The env module masks values; don't `console.log(env.BETTER_AUTH_SECRET)`.
+- **Don't disable `httpOnly` on the session cookie.** It's set in `signIn()` (Phase 6) — leave it `true`.
+- **Don't set `secure: false` in production.** The `signIn()` function checks `process.env.NODE_ENV === 'production'`.
+
+### 13.7 Performance Pitfalls
+
+- **Don't import `@/lib/storage/r2` or other heavy modules in client components.** Server-only.
+- **Don't attach `scroll` / `touchmove` listeners without `passive: true`.**
+- **Don't use `useEffect` for SSR-unsafe state.** Use `useState(() => ...)` lazy initializers.
+- **Don't use `forwardRef`.** React 19 passes `ref` as a regular prop.
+
+---
+
+## 14. Best Practices
+
+### 14.1 Code Organization
+
+- **Feature-sliced modules.** Each feature owns its UI, queries, mutations, types. No cross-feature imports.
+- **Co-located tests.** `Foo.tsx` ↔ `Foo.test.tsx` in the same directory.
+- **`as const` over `enum`.** See §9.2.
+- **Named exports only** in `apps/web/src/**`.
+
+### 14.2 TypeScript Conventions
+
+- `interface` for object shapes, `type` for unions/intersections.
+- `import type` for type-only imports (the linter enforces this).
+- `satisfies` for type-checking without widening.
+- Explicit return types on all exported functions.
+
+### 14.3 React/Next.js Conventions
+
+- Server Components by default. `'use client'` only when needed.
+- `'use server'` at the top of `features/*/actions.ts`.
+- `metadata` and `viewport` exports in `layout.tsx` (not a separate `<head>`).
+- `next/font/local` for self-hosted fonts (planned for Phase 3+).
+- MDX via `pageExtensions` — content in `apps/web/content/**/*.mdx`.
+
+### 14.4 Testing Conventions
+
+- TDD: RED → GREEN → REFACTOR. No production code without a failing test.
+- Behavior over implementation. Test what the user sees, not internal state.
+- `vi.hoisted()` for shared mock state across `vi.mock()` factories.
+- `.test.tsx` for any test that renders JSX.
+
+### 14.5 Database Conventions
+
+- Parameterized queries (Drizzle handles this — never raw SQL string concat).
+- Migrations, not `db:push` (in prod).
+- `typeof X.$inferSelect` for row types.
+- Lazy client via the globalThis Proxy.
+
+### 14.6 Security Conventions
+
+- Zod at every boundary (env, Server Action, API body).
+- HMAC tokens (`signToken` / `verifyToken`) for subscribe/unsubscribe links.
+- `verifySessionToken` (timing-safe compare) for session cookies.
+- `httpOnly: true`, `sameSite: 'lax'`, `secure: process.env.NODE_ENV === 'production'` on the session cookie.
+- CSP, X-Frame-Options: DENY, HSTS, Permissions-Policy — all set in `next.config.ts`.
+
+### 14.7 Design Conventions
+
+- Brand tokens only (no arbitrary values).
+- CSS-only animation (`@keyframes` + `transition`).
+- 3 themes: dark/light/cyber.
+- 4px radius scale.
+- `prefers-reduced-motion` enforced globally + per-hook.
+
+---
+
+## 15. Coding Patterns
+
+### 15.1 Server Action Pattern (auth → validate → business → response)
+
+**Location:** `apps/web/src/features/blog/actions.ts`
+
+```typescript
+'use server';
+import 'server-only';
+import { z } from 'zod';
+import { db, schema } from '@/lib/db';
+import { rateLimit } from '@/lib/rate-limit';
+
+const inputSchema = z.object({
+  postId: z.string().min(1, 'postId is required.'),
+  body: z.string().trim().min(3).max(2000),
+});
+
+type Result =
+  | { ok: true; commentId: string; message: string }
+  | { ok: false; error: string; fieldErrors?: Record<string, string> };
+
+export async function createComment(
+  input: unknown,
+  ctx: { ip?: string } = {},
+): Promise<Result> {
+  // 1. Validate input (Zod).
+  const parsed = inputSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Invalid input.',
+      fieldErrors: Object.fromEntries(
+        parsed.error.issues.map((i) => [i.path[0], i.message]),
+      ),
+    };
+  }
+
+  // 2. Rate limit (sliding window, per-IP).
+  const allowed = await rateLimit(`comment:${ctx.ip ?? parsed.data.postId}`, 10, 3600);
+  if (!allowed) {
+    return { ok: false, error: 'Too many comments. Try again later.' };
+  }
+
+  // 3. Business logic (verify post exists, insert comment).
+  try {
+    const id = crypto.randomUUID();
+    db.insert(schema.comments)
+      .values({
+        id,
+        postId: parsed.data.postId,
+        body: parsed.data.body,
+        authorName: 'anonymous',
+        status: 'pending',
+      })
+      .run();
+    return { ok: true, commentId: id, message: 'Comment submitted for review.' };
+  } catch (e) {
+    console.error('[createComment] DB error', e);
+    return { ok: false, error: 'Server error. Please try again.' };
+  }
+}
+```
+
+### 15.2 API Route Pattern (force-dynamic, auth, owner check)
+
+**Location:** `apps/web/src/app/api/confirm/route.ts`
+
+```typescript
+import 'server-only';
+import { verifyToken } from '@devlog/auth';
+import { eq } from 'drizzle-orm';
+import { db, schema } from '@/lib/db';
+import { env } from '@/lib/env';
+
+export const dynamic = 'force-dynamic';
+
+export async function GET(req: Request) {
+  // 1. Parse + validate input.
+  const url = new URL(req.url);
+  const token = url.searchParams.get('token');
+  if (!token) return new Response('missing token', { status: 400 });
+
+  // 2. Verify signed token (HMAC).
+  const sep = token.indexOf('.');
+  if (sep < 0) return new Response('invalid or expired token', { status: 400 });
+  const subscriberId = token.slice(0, sep);
+  if (!verifyToken(token, subscriberId)) {
+    return new Response('invalid or expired token', { status: 400 });
+  }
+
+  // 3. Idempotent business logic.
+  try {
+    const rows = db.select().from(schema.subscribers)
+      .where(eq(schema.subscribers.id, subscriberId)).limit(1).all();
+    const sub = rows[0];
+    if (!sub) return new Response('unknown subscriber', { status: 400 });
+    if (sub.status === 'confirmed') {
+      return new Response('already subscribed', { status: 200 });  // idempotent
+    }
+    db.update(schema.subscribers)
+      .set({ status: 'confirmed', confirmedAt: new Date() })
+      .where(eq(schema.subscribers.id, subscriberId)).run();
+    const redirectUrl = new URL(env.NEXT_PUBLIC_SITE_URL);
+    redirectUrl.searchParams.set('subscribed', '1');
+    return Response.redirect(redirectUrl, 302);
+  } catch (e) {
+    console.error('[confirm] DB error', e);
+    return new Response('server error', { status: 500 });
+  }
+}
+```
+
+### 15.3 Domain Function Pattern (pure, no framework imports)
+
+**Location:** `apps/web/src/domain/theme.ts`
+
+```typescript
+// Pure TS — no React, no Drizzle, no IO.
+
+export const THEME_COOKIE = 'devlog-theme';
+export const VALID_THEMES = ['dark', 'light', 'cyber'] as const;
+export type Theme = (typeof VALID_THEMES)[number];
+
+export const THEME_ORDER: readonly Theme[] = VALID_THEMES;
+
+export function isValidTheme(value: unknown): value is Theme {
+  return typeof value === 'string' && (VALID_THEMES as readonly string[]).includes(value);
+}
+
+export function cycleTheme(theme: Theme): Theme {
+  const i = THEME_ORDER.indexOf(theme);
+  const next = THEME_ORDER[(i + 1) % THEME_ORDER.length] ?? 'dark';
+  return next;
+}
+```
+
+### 15.4 Idempotent Operation Pattern (ON CONFLICT / status check)
+
+**Location:** `apps/web/src/app/api/confirm/route.ts`
+
+```typescript
+// Check current state before writing — idempotent.
+if (sub.status === 'confirmed') {
+  return new Response('already subscribed', { status: 200 });
+}
+// Only then update.
+db.update(schema.subscribers)
+  .set({ status: 'confirmed', confirmedAt: new Date() })
+  .where(eq(schema.subscribers.id, subscriberId))
+  .run();
+```
+
+### 15.5 SSE Pattern (not yet implemented — planned for Phase 8)
+
+(Reserved for future live-comment rendering. Document the pattern here when added.)
+
+### 15.6 Webhook Idempotency Pattern (not yet implemented — planned for future email bounce handling)
+
+(Reserved for future Resend webhook handling. Document the pattern here when added.)
+
+### 15.7 Env Module Pattern (build-context fallback)
+
+**Location:** `apps/web/src/lib/env.ts`
+
+```typescript
+import 'server-only';
+import { z } from 'zod';
+
+const EnvSchema = z.object({
+  BETTER_AUTH_SECRET: z.string().min(32).optional(),
+  // ... 12 vars total
+});
+
+export type Env = z.infer<typeof EnvSchema>;
+
+function loadEnv(): Env {
+  const parsed = EnvSchema.safeParse(process.env);
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n');
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(`Invalid environment variables:\n${issues}`);
+    }
+    console.warn(`[env] Invalid environment variables:\n${issues}`);
+    return EnvSchema.parse({ ...process.env, ...EnvSchema._def.shape });
+  }
+  return parsed.data;
+}
+
+export const env = loadEnv();
+```
+
+### 15.8 Source-Reading Test Pattern
+
+**Location:** `apps/web/src/hooks/use-typewriter.test.tsx`
+
+Tests that read the actual source file and verify behavior. The pattern is to test the public API (the hook's return value), not the internal state:
+
+```typescript
+import { renderHook } from '@testing-library/react';
+import { useTypewriter } from './use-typewriter';
+
+it('cycles through words', () => {
+  const { result } = renderHook(() => useTypewriter(['hello', 'world']));
+  // Use fake timers to advance the typewriter cycle.
+  act(() => { vi.advanceTimersByTime(1000); });
+  expect(result.current).not.toBe('');
+});
+```
+
+### 15.9 Sliding-Window Rate Limiter Pattern
+
+**Location:** `apps/web/src/lib/rate-limit.ts`
+
+```typescript
+const buckets = new Map<string, number[]>();
+
+export async function rateLimit(
+  key: string,
+  max: number,
+  windowSeconds: number,
+): Promise<boolean> {
+  const now = Date.now();
+  const windowMs = windowSeconds * 1000;
+  const arr = buckets.get(key) ?? [];
+  // Prune old timestamps.
+  const fresh = arr.filter((t) => now - t < windowMs);
+  if (fresh.length >= max) {
+    buckets.set(key, fresh);
+    return false;
+  }
+  fresh.push(now);
+  buckets.set(key, fresh);
+  return true;
+}
+```
+
+### 15.10 Lazy DB Client Pattern (globalThis + Proxy)
+
+**Location:** `packages/db/src/client.ts`
+
+```typescript
+declare global {
+  var __devlog_db: DrizzleClient | undefined;
+}
+
+function createDrizzleClient(): DrizzleClient {
+  const sqlite = new Database(resolveDbPath());
+  sqlite.pragma('journal_mode = WAL');
+  sqlite.pragma('foreign_keys = ON');
+  return drizzle(sqlite, { schema });
+}
+
+export const db: DrizzleClient = new Proxy(
+  {},
+  {
+    get(_target, prop) {
+      const cached = globalThis.__devlog_db ?? createDrizzleClient();
+      globalThis.__devlog_db = cached;
+      const value = (cached as Record<string | symbol, unknown>)[prop];
+      return typeof value === 'function' ? value.bind(cached) : value;
+    },
+  },
+) as DrizzleClient;
+```
+
+### 15.11 Edge-Safe Token Pattern (HMAC + timing-safe compare)
+
+**Location:** `packages/auth/src/tokens.ts`
+
+```typescript
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+const TOKEN_SEPARATOR = '.';
+
+function getSecret(): string {
+  const s = process.env.BETTER_AUTH_SECRET;
+  if (!s || s.length < 32) return 'dev-only-secret-replace-in-production-xxxxxxxxxxxxxx';
+  return s;
+}
+
+function sign(userId: string): string {
+  return createHmac('sha256', getSecret()).update(userId).digest('hex');
+}
+
+export function createSessionToken(userId: string): string {
+  return `${userId}${TOKEN_SEPARATOR}${sign(userId)}`;
+}
+
+export function verifySessionToken(token: string): string | null {
+  const sep = token.indexOf(TOKEN_SEPARATOR);
+  if (sep < 0) return null;
+  const userId = token.slice(0, sep);
+  const receivedHmac = token.slice(sep + 1);
+  if (!userId || !receivedHmac) return null;
+  const expectedHmac = sign(userId);
+  try {
+    const a = Buffer.from(receivedHmac, 'hex');
+    const b = Buffer.from(expectedHmac, 'hex');
+    if (a.length !== b.length) return null;
+    if (!timingSafeEqual(a, b)) return null;
+    return userId;
+  } catch {
+    return null;
+  }
+}
+```
+
+### 15.12 Theme Cookie Sync Pattern
+
+**Location:** `apps/web/src/app/layout.tsx:60-97`
+
+The root layout reads the theme cookie server-side, emits `<html data-theme="...">`, and injects an inline `<head>` script that syncs the cookie with localStorage before hydration. This prevents FOUC and hydration mismatches.
+
+---
+
+## 16. Coding Anti-Patterns
+
+### 16.1 `as any` vs `unknown` + Narrow
+
+```typescript
+// ❌ Anti-pattern
+const data = JSON.parse(input) as any;
+data.someMethod();
+
+// ✅ Correct
+const data: unknown = JSON.parse(input);
+if (typeof data === 'object' && data !== null && 'someMethod' in data) {
+  // data is now narrowed to a type with someMethod
+}
+```
+
+### 16.2 Default Exports vs Named Exports
+
+```typescript
+// ❌ Anti-pattern (apps/web/src/**)
+export default function Hero() { ... }
+
+// ✅ Correct
+export function Hero() { ... }
+```
+
+### 16.3 `enum` vs `as const`
+
+```typescript
+// ❌ Anti-pattern (erasableSyntaxOnly forbids)
+enum Role { Author, Subscriber }
+
+// ✅ Correct
+const Role = { Author: 'author', Subscriber: 'subscriber' } as const;
+type Role = (typeof Role)[keyof typeof Role];
+```
+
+### 16.4 `<a>` vs `<Link>`
+
+```tsx
+// ❌ Anti-pattern — full page reload
+<a href="/posts/my-post">Read post</a>
+
+// ✅ Correct — client-side navigation
+<Link href="/posts/my-post">Read post</Link>
+```
+
+### 16.5 `amber-400` vs `accent`
+
+```tsx
+// ❌ Anti-pattern — color drift
+<span className="text-amber-400">accent text</span>
+
+// ✅ Correct — theme-aware
+<span className="text-accent">accent text</span>
+```
+
+### 16.6 `tailwind.config.ts` vs `@theme`
+
+```javascript
+// ❌ Anti-pattern — wrong for Tailwind v4
+// tailwind.config.ts
+export default {
+  theme: {
+    colors: { accent: '#f59e0b' },
+  },
+};
+
+// ✅ Correct — CSS-first @theme in globals.css
+@theme {
+  --color-accent: var(--accent);
+}
+```
+
+### 16.7 `vi.fn()` Outer Scope in `vi.mock()` Factory
+
+```typescript
+// ❌ Anti-pattern — Vitest throws
+const mockFn = vi.fn();
+vi.mock('@/lib/db', () => ({ db: { query: mockFn } }));
+
+// ✅ Correct — inline or vi.hoisted
+vi.mock('@/lib/db', () => ({
+  db: { query: vi.fn() },
+}));
+
+// or
+const { mockFn } = vi.hoisted(() => ({ mockFn: vi.fn() }));
+vi.mock('@/lib/db', () => ({ db: { query: mockFn } }));
+```
+
+### 16.8 Missing `passive: true` on `scroll`
+
+```typescript
+// ❌ Anti-pattern — blocks native scrolling
+window.addEventListener('scroll', onScroll);
+
+// ✅ Correct
+window.addEventListener('scroll', onScroll, { passive: true });
+```
+
+### 16.9 Synchronous `setState` in `useEffect`
+
+```typescript
+// ❌ Anti-pattern — triggers react-hooks/set-state-in-effect
+useEffect(() => {
+  setDeleting(true);
+}, [text]);
+
+// ✅ Correct — deferred
+useEffect(() => {
+  const t = setTimeout(() => setDeleting(true), PAUSE_AT_FULL_MS);
+  return () => clearTimeout(t);
+}, [text]);
+```
+
+### 16.10 `forwardRef` (React 19)
+
+```tsx
+// ❌ Anti-pattern — unnecessary in React 19
+const Button = forwardRef<HTMLButtonElement, Props>((props, ref) => { ... });
+
+// ✅ Correct — ref is a regular prop
+function Button({ ref, ...props }: Props & { ref?: Ref<HTMLButtonElement> }) { ... }
+```
+
+---
+
+## 17. Responsive Breakpoint Reference
+
+### 17.1 Tailwind Default Breakpoints (no custom config)
+
+| Prefix | Min width | Usage |
+|---|---|---|
+| (none) | 0 | Mobile-first base styles |
+| `sm:` | 640px | Small phones landscape / large phones portrait |
+| `md:` | 768px | Tablets |
+| `lg:` | 1024px | Laptops |
+| `xl:` | 1280px | Desktops |
+| `2xl:` | 1536px | Large monitors |
+
+**No custom breakpoints are configured.** Tailwind v4 defaults are the design budget.
+
+### 17.2 Usage Patterns Per Section
+
+| Section | Mobile | Desktop |
+|---|---|---|
+| Hero H1 | `clamp(2.5rem, 7.5vw, 6.5rem)` | (same — fluid) |
+| Hero subtitle | `text-2xl` | `md:text-3xl` |
+| Hero body | `text-base` | `md:text-lg` |
+| Stats grid | `grid-cols-2` | `md:grid-cols-4` |
+| Article cards | `grid-cols-1` | `md:grid-cols-2 lg:grid-cols-3` |
+| Article card padding | 22px | 28px (default in `.article-card`) |
+| `.card-num` font-size | 42px | 56px (default in `.article-card`) |
+| Nav | collapsed menu (mobile) | full horizontal (md+) |
+
+### 17.3 Mobile Testing
+
+Test on iPhone SE (375×667) and iPad (768×1024) viewports via Chrome DevTools. The landing page's `clamp(2.5rem, 7.5vw, 6.5rem)` hero font scales fluidly. The 4-column stats grid collapses to 2 columns at `<768px`.
+
+---
+
+## 18. Z-Index Layer Map
+
+| Z-Index | Element | Location | Purpose |
+|---|---|---|---|
+| 200 | `[data-theme='cyber'] body::before` | `globals.css:70-84` | CRT scanlines overlay (cyber theme only) |
+| 100 | `.progress-bar` | `globals.css:109-120` | Top scroll-progress bar |
+| 50 | Skip link (focused) | `apps/web/src/app/layout.tsx:88-92` | Skip-to-content visible on focus |
+| 2 | Hero content wrapper | `apps/web/src/features/landing/hero.tsx:54` | Above float-dot background |
+| 1 | `.mouse-glow` | `globals.css:160-176` | Cursor follow glow (behind content) |
+| (default) | All other content | — | Normal flow |
+
+**Conflict resolution:** The skip link (z-50) must always appear above the progress bar (z-100)? Wait — z-100 > z-50, so the progress bar is above the skip link. **This is intentional** — the progress bar is 3px tall and at the very top; the skip link is fixed at `top-2` (8px) so they don't overlap visually. The progress bar (z-100) sits above everything because it should always be visible during scroll.
+
+**Radix/shadcn portal z-index:** No Radix portals are currently used. If a modal/dialog is added later, document its z-index here (likely `z-modal: 1000` per Tailwind convention, above the progress bar).
+
+---
+
+## 19. Color Reference (Complete)
+
+### 19.1 Semantic Tokens
+
+| Token | Dark | Light | Cyber | Tailwind Class |
+|---|---|---|---|---|
+| `--bg` | `#0c0b09` | `#f3ecdc` | `#02060a` | `bg-bg` |
+| `--bg-elev` | `#14120e` | `#faf3e1` | `#050d10` | `bg-bg-elev` |
+| `--bg-elev-2` | `#1c1a14` | `#fffaee` | `#071318` | `bg-bg-elev-2` |
+| `--fg` | `#f0ead6` | `#1a1610` | `#4eff96` | `text-fg` |
+| `--fg-dim` | `#c9c1ad` | `#3d362b` | `#8affb8` | `text-fg-dim` |
+| `--muted` | `#8a8275` | `#6b6358` | `#2a8a5e` | `text-muted` |
+| `--accent` | `#f59e0b` | `#c2410c` | `#ffea00` | `text-accent`, `bg-accent` |
+| `--accent-2` | `#06b6d4` | `#0e7490` | `#ff10f0` | `text-accent-2`, `bg-accent-2` |
+| `--border` | `rgba(240,234,214,0.08)` | `rgba(26,22,16,0.12)` | `rgba(78,255,150,0.18)` | `border-border` |
+| `--border-strong` | `rgba(240,234,214,0.18)` | `rgba(26,22,16,0.24)` | `rgba(78,255,150,0.4)` | `border-border-strong` |
+| `--card` | `#15130e` | `#fffaee` | `#050d10` | `bg-card` |
+| `--code-bg` | `#060503` | `#1a1610` | `#000` | `bg-code-bg` |
+| `--code-fg` | `#f0ead6` | `#f3ecdc` | `#4eff96` | `text-code-fg` |
+| `--glow` | `rgba(245,158,11,0.15)` | `rgba(194,65,12,0.12)` | `rgba(78,255,150,0.2)` | `shadow-[var(--glow)]` (or use `.input-field:focus`) |
+
+### 19.2 RGB Variants (for `rgba(var(--accent-rgb), 0.X)` usage)
+
+| Token | Dark RGB | Light RGB | Cyber RGB |
+|---|---|---|---|
+| `--accent-rgb` | `245, 158, 11` | `194, 65, 12` | `255, 234, 0` |
+| `--accent-2-rgb` | `6, 182, 212` | `14, 116, 144` | `255, 16, 240` |
+
+### 19.3 Syntax Highlighting Tokens (per-theme)
+
+| Token | Dark | Light | Cyber |
+|---|---|---|---|
+| `.tk-key` | `#ff7b72` | `#c2410c` | `#ff10f0` |
+| `.tk-str` | `#a5d6ff` | `#0e7490` | `#ffea00` |
+| `.tk-fn` | `#d2a8ff` | `#7c2d12` | `#8affb8` |
+| `.tk-com` | `#6e7681` | `#6b6358` | `#2a8a5e` |
+| `.tk-num` | `#79c0ff` | `#0e7490` | `#ffea00` |
+| `.tk-op` | `#ffa657` | `#c2410c` | `#ffea00` |
+| `.tk-var` | `var(--code-fg)` | `var(--code-fg)` | `var(--code-fg)` |
+
+### 19.4 Forbidden Colors
+
+- **No purple gradients** (any theme). The accent palette is amber/terracotta/neon-yellow.
+- **No Tailwind default colors** (`amber-400`, `cyan-500`, `gray-200`, etc.) — use the semantic tokens.
+- **No arbitrary hex values** (`text-[#abc123]`) — use the tokens or extend `@theme`.
+
+### 19.5 The Singular Exception
+
+The traffic-light dots in `.code-window` use hardcoded hex values (`#ff5f57`, `#febc2e`, `#28c840`) — these are macOS window controls, not part of the design system. They are the only allowed hardcoded colors.
+
+---
+
+## 20. The Complete TypeScript Interface Reference
+
+### 20.1 Marketing / Landing Interfaces
+
+```typescript
+// apps/web/src/domain/theme.ts
+export const THEME_COOKIE = 'devlog-theme';
+export const THEME_LOCALSTORAGE = 'devlog-theme';
+export const VALID_THEMES = ['dark', 'light', 'cyber'] as const;
+export type Theme = (typeof VALID_THEMES)[number];
+export const THEME_ORDER: readonly Theme[] = VALID_THEMES;
+
+export function isValidTheme(value: unknown): value is Theme;
+export function cycleTheme(theme: Theme): Theme;
+```
+
+```typescript
+// apps/web/src/domain/github.ts
+export interface GitHubRepoStats {
+  stars: number;
+  forks: number;
+}
+
+export const FALLBACK_STARS = 82400;
+export const FALLBACK_FORKS = 12400;  // Note: env default differs (4180)
+export const GITHUB_CACHE_TTL_SECONDS = 60;
+export const GITHUB_INCR_INTERVAL_MS = 9000;
+
+export function formatNumber(n: number): string;
+```
+
+### 20.2 Pipeline Domain Interfaces
+
+```typescript
+// apps/web/src/lib/env.ts
+export type Env = {
+  DATABASE_PATH: string;
+  BETTER_AUTH_SECRET?: string;
+  BETTER_AUTH_URL: string;
+  RESEND_API_KEY?: string;
+  RESEND_FROM: string;
+  SIGNED_TOKEN_SECRET?: string;
+  NEXT_PUBLIC_SITE_URL: string;
+  NEXT_PUBLIC_GITHUB_REPO: string;
+  NEXT_PUBLIC_AUTHOR_EMAIL: string;
+  GITHUB_STATS_FALLBACK_STARS: number;
+  GITHUB_STATS_FALLBACK_FORKS: number;
+  CRON_SECRET?: string;
+  NODE_ENV: 'development' | 'test' | 'production';
+};
+
+export const env: Env;
+```
+
+### 20.3 Auth Interfaces
+
+```typescript
+// packages/auth/src/tokens.ts
+export const SESSION_COOKIE = 'devlog_session';
+export const SESSION_TTL = 60 * 60 * 24 * 30; // 30 days, in seconds
+
+export function createSessionToken(userId: string): string;
+export function verifySessionToken(token: string): string | null;
+export function signToken(payload: string): string;
+export function verifyToken(token: string, expectedPayload: string): boolean;
+```
+
+```typescript
+// packages/auth/src/index.ts
+export interface SessionUser {
+  id: string;
+  email: string;
+  name: string | null;
+  role: 'author' | 'subscriber';
+  image: string | null;
+}
+
+export async function signIn(
+  email: string,
+  password: string,
+  setCookie: (
+    name: string,
+    value: string,
+    opts: {
+      maxAge: number;
+      httpOnly: boolean;
+      sameSite: 'lax' | 'strict' | 'none';
+      path: string;
+      secure: boolean;
+    },
+  ) => void,
+): Promise<{ ok: true; user: SessionUser } | { ok: false; error: string }>;
+
+export function signOut(
+  clearCookie: (name: string, opts: { path: string }) => void,
+): void;
+
+export async function getSession(
+  cookieValue: string | undefined | null,
+): Promise<SessionUser | null>;
+
+export async function getSessionFromCookies(): Promise<SessionUser | null>;
+
+export async function requireAuthor(
+  cookieValue: string | undefined | null,
+): Promise<SessionUser>;
+
+export class AuthorRequiredError extends Error;
+export function isAuthorRequiredError(e: unknown): boolean;
+```
+
+### 20.4 Database Schema (Drizzle Inferred Types)
+
+```typescript
+// packages/db/src/schema.ts (re-exports)
+export type User = typeof users.$inferSelect;        // { id, email, emailVerified, image, name, passwordHash, role, createdAt, updatedAt }
+export type Session = typeof sessions.$inferSelect;  // { id, userId, token, expiresAt, createdAt, updatedAt, ipAddress, userAgent }
+export type Post = typeof posts.$inferSelect;        // { id, slug, title, excerpt, contentMdx, coverImageUrl, publishedAt, updatedAt, readingTimeMinutes, authorId, status, createdAt }
+export type Tag = typeof tags.$inferSelect;          // { id, slug, name, createdAt }
+export type Subscriber = typeof subscribers.$inferSelect; // { id, email, status, confirmToken, unsubscribeToken, preferences, createdAt, confirmedAt, unsubscribedAt }
+export type Comment = typeof comments.$inferSelect;  // { id, postId, parentId, authorName, authorEmail, body, status, createdAt }
+export type SiteSettings = typeof siteSettings.$inferSelect; // { id, authorName, authorBio, authorAvatarUrl, socialLinks, defaultSeoDescription, defaultOgImageUrl, updatedAt }
+```
+
+### 20.5 Email Interfaces
+
+```typescript
+// packages/email/src/send.ts
+export type EmailTemplate =
+  | 'confirm-email'
+  | 'new-essay-email'
+  | 'unsubscribe-confirmation';
+
+export interface SendEmailArgs<T extends EmailTemplate = EmailTemplate> {
+  to: string | string[];
+  from?: string;
+  subject: string;
+  template: T;
+  props: TemplateProps<T>;
+}
+
+export interface SendEmailResult {
+  ok: boolean;
+  skipped?: boolean;
+  messageId?: string;
+  error?: string;
+}
+
+export const TEMPLATES: {
+  'confirm-email': typeof ConfirmEmail;
+  'new-essay-email': typeof NewEssayEmail;
+  'unsubscribe-confirmation': typeof UnsubscribeConfirmation;
+};
+
+export type TemplateProps<T extends EmailTemplate> =
+  React.ComponentProps<(typeof TEMPLATES)[T]>;
+
+export async function renderEmail<T extends EmailTemplate>(
+  template: T,
+  props: TemplateProps<T>,
+): Promise<{ html: string; text: string }>;
+
+export async function sendEmail<T extends EmailTemplate>(
+  args: SendEmailArgs<T>,
+): Promise<SendEmailResult>;
+```
+
+### 20.6 Server Action Interfaces
+
+```typescript
+// apps/web/src/features/blog/actions.ts
+export const createCommentInputSchema: z.ZodObject<{
+  postId: z.ZodString;
+  body: z.ZodString;
+  parentId: z.ZodOptional<z.ZodString>;
+  authorName: z.ZodDefault<z.ZodOptional<z.ZodString>>;
+  authorEmail: z.ZodOptional<z.ZodString>;
+}>;
+
+export type CreateCommentInput = z.infer<typeof createCommentInputSchema>;
+
+export interface CreateCommentSuccess {
+  ok: true;
+  commentId: string;
+  message: string;
+}
+
+export interface CreateCommentFailure {
+  ok: false;
+  error: string;
+  fieldErrors?: Partial<Record<keyof CreateCommentInput, string>>;
+}
+
+export type CreateCommentResult = CreateCommentSuccess | CreateCommentFailure;
+
+export async function createComment(
+  input: unknown,
+  ctx: { ip?: string },
+): Promise<CreateCommentResult>;
+```
+
+### 20.7 Environment Interface
+
+See §20.2 above — the `Env` type is the canonical env interface.
+
+### 20.8 Storage Interfaces
+
+No `r2.ts` or storage layer exists. (Reserved for future OG image generation in Phase 8+.)
+
+---
+
+## Appendix A: ADRs
+
+The PAD documents 7 ADRs. Summary:
+
+| ADR | Decision | Rationale |
+|---|---|---|
+| ADR-001 | Next.js 16 App Router | Server Components by default; MDX via `pageExtensions`; `middleware.ts` for edge auth |
+| ADR-002 | Edge-safe auth split (`tokens.ts` vs `index.ts`) | Edge Runtime can't bundle `better-sqlite3`; pure crypto helpers go in `tokens.ts` |
+| ADR-003 | Tailwind v4 CSS-first `@theme` | No `tailwind.config.ts`; tokens in `globals.css`; design budget closed |
+| ADR-004 | Drizzle ORM + better-sqlite3 | SQLite-only; migrations via Drizzle Kit; lazy Proxy client avoids build-time DB opens |
+| ADR-005 | Better Auth (HMAC tokens, not JWT) | Simpler than JWT; `timingSafeEqual` for verification; cookie-based sessions |
+| ADR-006 | Resend + React Email | Degrades gracefully without API key; React Email templates render to HTML + text |
+| ADR-007 | Vitest + jsdom over Jest | Native ESM; faster; co-located tests; `react-hooks` v7 ruleset for `set-state-in-effect` |
+
+See [`Project_Architecture_Document.md`](./Project_Architecture_Document.md) §2 for the full ADRs with rationale and alternatives considered.
+
+---
+
+## Appendix B: The Meticulous Approach
+
+The 6-phase workflow used for every implementation task:
+
+1. **ANALYZE** — Read the PRD/PAD/MEP triple before touching code. Map every change to an FR-N. Surface-level reading is not enough.
+2. **PLAN** — Pick the MEP phase that owns this work; produce a RED→GREEN→REFACTOR checklist. Present the plan before coding.
+3. **VALIDATE** — Confirm the layer boundaries (§5.1) are respected before writing the first test.
+4. **IMPLEMENT** — Write the failing test first, then the implementation, then refactor. Commit atomically with `Refs: FR-N` footer.
+5. **VERIFY** — `pnpm check-types && pnpm lint && pnpm test && pnpm build` must all be green before push. Never break `main`.
+6. **DELIVER** — Update this SKILL.md / PRD if the change introduces a new pattern, anti-pattern, or lesson.
+
+---
+
+## Appendix C: Quick Reference Card
+
+### File Paths (most-referenced)
+
+| File | Purpose |
+|---|---|
+| `apps/web/src/middleware.ts` | Layer 0 — admin route guard (Edge Runtime) |
+| `apps/web/src/app/layout.tsx` | Root layout — theme cookie sync, metadata, skip link |
+| `apps/web/src/app/globals.css` | The full design system (1:1 port of mockup) |
+| `apps/web/src/lib/env.ts` | Zod-validated env vars (throws at boot in prod) |
+| `apps/web/src/lib/rate-limit.ts` | Sliding-window in-memory rate limiter |
+| `apps/web/src/domain/theme.ts` | Pure theme types + `cycleTheme()` |
+| `apps/web/src/domain/github.ts` | GitHub stats types + `formatNumber()` |
+| `apps/web/src/hooks/use-typewriter.ts` | Type → pause → delete → advance cycle |
+| `apps/web/src/hooks/use-theme.ts` | Theme state + `T` keyboard shortcut |
+| `packages/db/src/schema.ts` | Drizzle schema — 7 tables |
+| `packages/db/src/client.ts` | Lazy globalThis Proxy DB client |
+| `packages/db/src/queries.ts` | The query boundary (Layer 1/2 calls go here) |
+| `packages/auth/src/index.ts` | Better Auth instance (Node-only) |
+| `packages/auth/src/tokens.ts` | Edge-safe pure crypto helpers |
+| `packages/email/src/send.ts` | Resend wrapper + template registry |
+| `packages/config/tailwind/base.css` | Raw color tokens per `[data-theme]` |
+| `apps/web/next.config.ts` | Next.js 16 config — security headers, MDX, standalone |
+| `tsconfig.base.json` | Strict TS, path aliases, `erasableSyntaxOnly` |
+| `turbo.json` | Turborepo task graph + env-aware caching |
+
+### Common Commands
+
+```bash
+pnpm dev           # Dev server
+pnpm check         # Full quality gate
+pnpm db:generate   # Drizzle Kit: diff schema → SQL
+pnpm db:migrate    # Apply migrations
+pnpm db:seed       # Seed mockup data
+pnpm db:studio     # Drizzle Studio at :4983
+
+# Single-package
+pnpm --filter @devlog/web test
+pnpm --filter @devlog/db test
+
+# SSH push (when OpenSSH missing)
+GIT_SSH_COMMAND="skills/how-to-git-push-using-ssh-wrapper/scripts/ssh_git_wrapper_v3.py -i docs/ssh-key.txt -o StrictHostKeyChecking=accept-new" git push origin main
+```
+
+### The 5-Layer Golden Rule (one-liner)
+
+`proxy → app → features → domain → lib` — a layer imports only from layers below or its own layer.
+
+### Critical "Don'ts"
+
+- Don't import `@devlog/auth` (root) in `middleware.ts` — use `@devlog/auth/tokens`.
+- Don't use `enum`, `namespace`, `as any`, default exports.
+- Don't add a 4th theme — design budget is closed.
+- Don't use Postgres/Redis — SQLite only.
+- Don't use Framer Motion/GSAP — CSS-only animation.
+- Don't modify `skills/**` or `landing_page_mockup.html`.
+- Don't skip the failing test — TDD is mandatory.
+
+---
+
+*End of SKILL.md. This document was distilled following the `to-distill-project-into-skill` meta-skill (six-phase process) from the completed Phases 1–7 of the /dev/log Master Execution Plan. Verify against the codebase before extending — code drifts, docs shouldn't.*
