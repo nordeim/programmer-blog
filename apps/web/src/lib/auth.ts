@@ -1,6 +1,22 @@
 /**
- * apps/web/src/lib/auth.ts — thin re-export of @devlog/auth's instance.
- * Phase 2 stub — Phase 6 of the MEP populates packages/auth with the
- * full Better Auth instance.
+ * apps/web/src/lib/auth.ts — thin re-export of @devlog/auth.
+ *
+ * Feature code imports from `@/lib/auth` rather than `@devlog/auth`
+ * directly, keeping the import surface consistent with PAD §3.2.
  */
-export const authPlaceholder = Symbol('auth-not-yet-implemented');
+export {
+  SESSION_COOKIE,
+  AuthorRequiredError,
+  createSessionToken,
+  getSession,
+  getSessionFromCookies,
+  isAuthorRequiredError,
+  requireAuthor,
+  signIn,
+  signOut,
+  signToken,
+  verifySessionToken,
+  verifyToken,
+  SESSION_TTL,
+  type SessionUser,
+} from '@devlog/auth';

@@ -40,10 +40,11 @@ export async function getArchivePosts(
   query?: string,
 ) {
   const offset = Math.max(0, (page - 1) * pageSize);
-  const conditions = [eq(posts.status, 'published')];
+  const conditions: ReturnType<typeof eq>[] = [eq(posts.status, 'published')];
   if (query && query.trim().length > 0) {
     const pattern = `%${query.trim()}%`;
-    conditions.push(or(like(posts.title, pattern), like(posts.excerpt, pattern))!);
+    const orClause = or(like(posts.title, pattern), like(posts.excerpt, pattern));
+    if (orClause) conditions.push(orClause);
   }
 
   if (tagSlug && tagSlug.trim().length > 0) {
@@ -84,10 +85,11 @@ export async function getArchivePosts(
 }
 
 export async function getArchiveCount(tagSlug?: string, query?: string) {
-  const conditions = [eq(posts.status, 'published')];
+  const conditions: ReturnType<typeof eq>[] = [eq(posts.status, 'published')];
   if (query && query.trim().length > 0) {
     const pattern = `%${query.trim()}%`;
-    conditions.push(or(like(posts.title, pattern), like(posts.excerpt, pattern))!);
+    const orClause = or(like(posts.title, pattern), like(posts.excerpt, pattern));
+    if (orClause) conditions.push(orClause);
   }
 
   if (tagSlug && tagSlug.trim().length > 0) {
