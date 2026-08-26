@@ -1,0 +1,33 @@
+# useTypewriter
+
+A lightweight React hook that types text out character-by-character. Useful for hero sections, code demos, and CLI-style UIs.
+
+## Usage
+
+```tsx
+import { useTypewriter } from '@devlog/snippets';
+
+const text = useTypewriter({
+  words: ['hello world', 'hello react', 'hello /dev/log'],
+  speed: 80,
+  deleteSpeed: 40,
+  pause: 1500,
+});
+
+return <h1>{text}</h1>;
+```
+
+## Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `words` | `string[]` | `[]` | The list of strings to cycle through. |
+| `speed` | `number` | `80` | Milliseconds per character when typing. |
+| `deleteSpeed` | `number` | `40` | Milliseconds per character when deleting. |
+| `pause` | `number` | `1500` | Milliseconds to pause at end of each word. |
+
+## Behaviour
+
+- Respects `prefers-reduced-motion` (renders the first word statically).
+- Cleans up timers on unmount.
+- Re-runs when `words` changes.

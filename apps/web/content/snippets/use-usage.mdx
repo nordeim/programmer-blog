@@ -1,0 +1,24 @@
+# useUsage
+
+A tiny hook for surfacing "usage" hints in component demos. Tracks which props changed since the last render and exposes a stringified diff.
+
+## Usage
+
+```tsx
+import { useUsage } from '@devlog/snippets';
+
+const usage = useUsage({ speed: 80, paused: false });
+// → 'speed={80} paused'
+```
+
+## Why
+
+The mockup's snippet-showcase section uses this to render the canonical
+"usage" string under each snippet demo. The same hook powers the
+admin post editor's MDX validation preview.
+
+## Behaviour
+
+- Returns a string of prop names that differ from defaults.
+- Always includes the props whose values are non-default (truthy).
+- Empty when called with no props or all defaults.

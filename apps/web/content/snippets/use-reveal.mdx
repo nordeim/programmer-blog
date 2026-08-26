@@ -1,0 +1,30 @@
+# useReveal
+
+Reveals an element with a fade-in-up when it scrolls into view.
+
+## Usage
+
+```tsx
+import { useReveal } from '@devlog/snippets';
+
+const { ref, isVisible } = useReveal({ threshold: 0.15 });
+
+return (
+  <section ref={ref} className={isVisible ? 'is-visible' : ''}>
+    <h2>content</h2>
+  </section>
+);
+```
+
+## Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `threshold` | `number` | `0.15` | IntersectionObserver threshold (0–1). |
+| `once` | `boolean` | `true` | Reveal only once; never un-reveal. |
+
+## Behaviour
+
+- Uses native IntersectionObserver.
+- Returns `isVisible: true` once the threshold is crossed.
+- Cleans up observer on unmount.

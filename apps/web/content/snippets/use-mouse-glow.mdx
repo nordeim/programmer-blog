@@ -1,0 +1,30 @@
+# useMouseGlow
+
+Adds a soft radial glow that follows the cursor inside a container. Disabled when the user prefers reduced motion.
+
+## Usage
+
+```tsx
+import { useMouseGlow } from '@devlog/snippets';
+
+const { ref } = useMouseGlow({ color: 'rgba(255,255,255,0.06)' });
+
+return (
+  <section ref={ref} style={{ position: 'relative' }}>
+    <h1>hover me</h1>
+  </section>
+);
+```
+
+## Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `color` | `string` | `rgba(78,255,150,0.08)` | CSS color for the radial gradient. |
+| `radius` | `number` | `300` | Glow radius in pixels. |
+
+## Behaviour
+
+- Returns a `ref` you attach to the container.
+- Creates a `radial-gradient` at the cursor position via CSS variables.
+- Cleans up listeners on unmount.
