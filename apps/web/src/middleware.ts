@@ -21,7 +21,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 const PUBLIC_ADMIN_PATHS = ['/admin/login'];
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Only gate /admin/* routes. Everything else is public.
@@ -35,7 +35,7 @@ export function middleware(req: NextRequest) {
   }
 
   const session = req.cookies.get(SESSION_COOKIE)?.value;
-  const userId = session ? verifySessionToken(session) : null;
+  const userId = session ? await verifySessionToken(session) : null;
 
   if (!userId) {
     const loginUrl = new URL('/admin/login', req.url);

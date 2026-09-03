@@ -86,7 +86,7 @@ export async function signIn(
     if (!user.passwordHash || !verifyPassword(password, user.passwordHash)) {
       return { ok: false, error: genericError };
     }
-    const token = createSessionToken(user.id);
+    const token = await createSessionToken(user.id);
     setCookie(SESSION_COOKIE, token, {
       maxAge: SESSION_TTL,
       httpOnly: true,
@@ -125,7 +125,7 @@ export function signOut(
  */
 export async function getSession(cookieValue: string | undefined | null): Promise<SessionUser | null> {
   if (!cookieValue) return null;
-  const userId = verifySessionToken(cookieValue);
+  const userId = await verifySessionToken(cookieValue);
   if (!userId) return null;
   try {
     const rows = db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1).all();

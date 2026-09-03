@@ -16,7 +16,8 @@
   "scripts": {
     "check-types": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "@devlog/types": "workspace:*",

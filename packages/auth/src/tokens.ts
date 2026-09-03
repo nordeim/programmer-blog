@@ -3,6 +3,14 @@
  * transaction tokens.
  *
  * Edge-runtime-safe (no @devlog/db import, no node-only APIs).
+ * Uses Web Crypto (crypto.subtle) so the Edge Runtime can verify
+ * session cookies without pulling in the drizzle-orm + better-sqlite3
+ * stack. The original implementation used `node:crypto` (createHmac +
+ * timingSafeEqual) which Turbopack warns is not supported in the
+ * Edge Runtime — see runtime_error.txt RC-1. This file now uses
+ * `crypto.subtle` (available on both Node 20+ and Edge) and a
+ * constant-time string compare, eliminating the `node:crypto` import
+ * entirely.
  *
  * Used by apps/web/src/middleware.ts (Edge Runtime) so that the
  * middleware can verify session cookies without pulling in the
@@ -21,7 +29,6 @@
  * the verifier — callers pass their own payload (a userId, a
  * subscriberId, etc.).
  */
-import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export const SESSION_COOKIE = 'devlog_session';
 const TOKEN_SEPARATOR = '.';
@@ -45,52 +52,66 @@ function getSecret(): string {
   return s;
 }
 
-function sign(userId: string): string {
-  return createHmac('sha256', getSecret()).update(userId).digest('hex');
+async function hmacHex(message: string): Promise<string> {
+  const secret = getSecret();
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+  const bytes = new Uint8Array(sig);
+  let hex = '';
+  for (const b of bytes) hex += b.toString(16).padStart(2, '0');
+  return hex;
 }
 
-export function createSessionToken(userId: string): string {
-  return `${userId}${TOKEN_SEPARATOR}${sign(userId)}`;
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  // Constant-time compare on hex strings (prevents timing oracle).
+  let out = 0;
+  for (let i = 0; i < a.length; i++) out |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return out === 0;
 }
 
-export function verifySessionToken(token: string): string | null {
+function isHex64(s: string): boolean {
+  return /^[a-f0-9]{64}$/.test(s);
+}
+
+export async function createSessionToken(userId: string): Promise<string> {
+  const mac = await hmacHex(userId);
+  return `${userId}${TOKEN_SEPARATOR}${mac}`;
+}
+
+export async function verifySessionToken(token: string): Promise<string | null> {
   const sep = token.indexOf(TOKEN_SEPARATOR);
   if (sep < 0) return null;
   const userId = token.slice(0, sep);
   const receivedHmac = token.slice(sep + 1);
   if (!userId || !receivedHmac) return null;
-  const expectedHmac = sign(userId);
-  try {
-    const a = Buffer.from(receivedHmac, 'hex');
-    const b = Buffer.from(expectedHmac, 'hex');
-    if (a.length !== b.length) return null;
-    if (!timingSafeEqual(a, b)) return null;
-    return userId;
-  } catch {
-    return null;
-  }
+  if (!isHex64(receivedHmac)) return null;
+  const expectedHmac = await hmacHex(userId);
+  if (!timingSafeEqualHex(receivedHmac, expectedHmac)) return null;
+  return userId;
 }
 
-export function signToken(payload: string): string {
-  const mac = createHmac('sha256', getSecret()).update(payload).digest('hex');
+export async function signToken(payload: string): Promise<string> {
+  const mac = await hmacHex(payload);
   return `${payload}${TOKEN_SEPARATOR}${mac}`;
 }
 
-export function verifyToken(token: string, expectedPayload: string): boolean {
+export async function verifyToken(token: string, expectedPayload: string): Promise<boolean> {
   const sep = token.indexOf(TOKEN_SEPARATOR);
   if (sep < 0) return false;
   const payload = token.slice(0, sep);
   const receivedMac = token.slice(sep + 1);
   if (payload !== expectedPayload) return false;
-  const expectedMac = createHmac('sha256', getSecret()).update(payload).digest('hex');
-  try {
-    const a = Buffer.from(receivedMac, 'hex');
-    const b = Buffer.from(expectedMac, 'hex');
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(a, b);
-  } catch {
-    return false;
-  }
+  if (!isHex64(receivedMac)) return false;
+  const expectedMac = await hmacHex(payload);
+  return timingSafeEqualHex(receivedMac, expectedMac);
 }
 
 export const SESSION_TTL = SESSION_TTL_SECONDS;

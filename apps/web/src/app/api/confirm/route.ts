@@ -41,7 +41,7 @@ export async function GET(req: ConfirmRequest) {
     return new Response('invalid or expired token', { status: 400 });
   }
   const subscriberId = token.slice(0, sep);
-  if (!verifyToken(token, subscriberId)) {
+  if (!(await verifyToken(token, subscriberId))) {
     return new Response('invalid or expired token', { status: 400 });
   }
 

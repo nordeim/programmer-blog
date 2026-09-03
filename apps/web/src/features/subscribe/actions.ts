@@ -110,7 +110,7 @@ export async function subscribeToNewsletter(
     // R-4: generate a SIGNED token (format: <subscriberId>.<hmac>).
     // The /api/confirm, /unsubscribe, and /preferences routes call
     // verifyToken(token, subscriberId) — they expect this format.
-    const confirmToken = signToken(subscriberId);
+    const confirmToken = await signToken(subscriberId);
 
     // Persist the signed token so the route can look it up if needed
     // (it currently re-derives from the URL, but storing keeps the

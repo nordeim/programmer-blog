@@ -36,71 +36,71 @@ afterAll(() => {
 });
 
 describe('session tokens', () => {
-  it('createSessionToken returns <userId>.<hmac>', () => {
-    const t = createSessionToken('user-123');
+  it('createSessionToken returns <userId>.<hmac>', async () => {
+    const t = await createSessionToken('user-123');
     expect(t).toMatch(/^user-123\.[a-f0-9]{64}$/);
   });
 
-  it('verifySessionToken returns the userId for a valid token', () => {
-    const t = createSessionToken('user-123');
-    expect(verifySessionToken(t)).toBe('user-123');
+  it('verifySessionToken returns the userId for a valid token', async () => {
+    const t = await createSessionToken('user-123');
+    expect(await verifySessionToken(t)).toBe('user-123');
   });
 
-  it('verifySessionToken returns null for a tampered hmac', () => {
-    const t = createSessionToken('user-123');
+  it('verifySessionToken returns null for a tampered hmac', async () => {
+    const t = await createSessionToken('user-123');
     const tampered = t.slice(0, -1) + (t.endsWith('a') ? 'b' : 'a');
-    expect(verifySessionToken(tampered)).toBeNull();
+    expect(await verifySessionToken(tampered)).toBeNull();
   });
 
-  it('verifySessionToken returns null for a malformed token', () => {
-    expect(verifySessionToken('garbage')).toBeNull();
-    expect(verifySessionToken('')).toBeNull();
-    expect(verifySessionToken('userid-only')).toBeNull();
+  it('verifySessionToken returns null for a malformed token', async () => {
+    expect(await verifySessionToken('garbage')).toBeNull();
+    expect(await verifySessionToken('')).toBeNull();
+    expect(await verifySessionToken('userid-only')).toBeNull();
   });
 
   // R-2 (audit remediation): a token signed with a DIFFERENT secret must be
   // rejected — this pins the HMAC substitution design (no Better Auth; the
   // secret is the only trust root).
-  it('verifySessionToken rejects a forged token signed with a different secret', () => {
-    const forged = createSessionToken('user-123');
+  it('verifySessionToken rejects a forged token signed with a different secret', async () => {
+    const forged = await createSessionToken('user-123');
     // Rotate the secret, then verify the token minted under the old secret.
     const original = process.env.BETTER_AUTH_SECRET;
     process.env.BETTER_AUTH_SECRET = 'b'.repeat(64);
     try {
-      expect(verifySessionToken(forged)).toBeNull();
+      expect(await verifySessionToken(forged)).toBeNull();
       // A token minted under the CURRENT secret is accepted.
-      const fresh = createSessionToken('user-123');
-      expect(verifySessionToken(fresh)).toBe('user-123');
+      const fresh = await createSessionToken('user-123');
+      expect(await verifySessionToken(fresh)).toBe('user-123');
     } finally {
       process.env.BETTER_AUTH_SECRET = original;
     }
   });
 
-  it('verifySessionToken returns null when the hmac is not hex', () => {
-    expect(verifySessionToken('user-123.nothex')).toBeNull();
+  it('verifySessionToken returns null when the hmac is not hex', async () => {
+    expect(await verifySessionToken('user-123.nothex')).toBeNull();
   });
 });
 
 describe('signToken / verifyToken', () => {
-  it('signs and verifies a payload', () => {
-    const t = signToken('subscriber-abc');
-    expect(verifyToken(t, 'subscriber-abc')).toBe(true);
+  it('signs and verifies a payload', async () => {
+    const t = await signToken('subscriber-abc');
+    expect(await verifyToken(t, 'subscriber-abc')).toBe(true);
   });
 
-  it('returns false for the wrong payload', () => {
-    const t = signToken('subscriber-abc');
-    expect(verifyToken(t, 'subscriber-xyz')).toBe(false);
+  it('returns false for the wrong payload', async () => {
+    const t = await signToken('subscriber-abc');
+    expect(await verifyToken(t, 'subscriber-xyz')).toBe(false);
   });
 
-  it('returns false for a tampered token', () => {
-    const t = signToken('subscriber-abc');
+  it('returns false for a tampered token', async () => {
+    const t = await signToken('subscriber-abc');
     const tampered = t.slice(0, -1) + (t.endsWith('a') ? 'b' : 'a');
-    expect(verifyToken(tampered, 'subscriber-abc')).toBe(false);
+    expect(await verifyToken(tampered, 'subscriber-abc')).toBe(false);
   });
 
-  it('returns false for a malformed token', () => {
-    expect(verifyToken('garbage', 'subscriber-abc')).toBe(false);
-    expect(verifyToken('', '')).toBe(false);
+  it('returns false for a malformed token', async () => {
+    expect(await verifyToken('garbage', 'subscriber-abc')).toBe(false);
+    expect(await verifyToken('', '')).toBe(false);
   });
 });
 

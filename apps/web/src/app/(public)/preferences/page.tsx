@@ -49,7 +49,7 @@ export default async function PreferencesPage({ searchParams }: PreferencesPageP
       error = 'invalid or expired token';
     } else {
       const subscriberId = token.slice(0, sep);
-      if (!verifyToken(token, subscriberId)) {
+      if (!(await verifyToken(token, subscriberId))) {
         error = 'invalid or expired token';
       } else {
         try {
