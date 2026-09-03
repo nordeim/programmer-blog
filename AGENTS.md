@@ -84,6 +84,8 @@ A layer may only import from layers *below* it or from its own layer:
 ## Next.js 16 Quirks
 
 - **`proxy.ts` (replaces `middleware.ts` since 16.3.4).** Next 16 renamed `middleware.ts` → `proxy.ts`; build **errors** if both exist. The matcher is `['/admin/:path*']`. Keep only `apps/web/src/proxy.ts` (`export async function proxy`).
+- **Standalone deploys need the postbuild copy.** `output: 'standalone'` leaves `.next/static` + `public/` out of `.next/standalone/`; `pnpm build` runs `postbuild` (`src/scripts/copy-standalone-assets.ts`, R-33) to mirror them in. Never delete the postbuild script — that's how the live landing page went unstyled (C-34).
+- **Feed URLs are rewrites.** `/rss.xml`, `/sitemap.xml`, `/robots.txt` are rewrites onto the `/api/*` handlers (R-34) — pinned by `src/next.config.test.ts`.
 - **`output: 'standalone'`** — build produces `apps/web/.next/standalone/apps/web/server.js`. Start with `node apps/web/.next/standalone/apps/web/server.js` (not `next start`).
 - **MDX is first-class** — `pageExtensions: ['ts','tsx','js','jsx','md','mdx']`. Content lives in `apps/web/content/{posts,snippets}/*.mdx`.
 - **PPR is disabled** (`experimental.cacheComponents` commented out in `next.config.ts`). Enable in Phase 4+ when the landing page is fully built.
@@ -93,6 +95,7 @@ A layer may only import from layers *below* it or from its own layer:
 
 - **Schema:** `packages/db/src/schema.ts` — 7 tables: `users`, `sessions`, `posts`, `tags`, `postsToTags`, `subscribers`, `comments`, `siteSettings`.
 - **Queries boundary:** `packages/db/src/queries.ts`. Layer 1/2 must call queries from there, not Drizzle directly.
+- **SQLite dialect rules (R-32, regression-pinned):** no `::` casts (use drizzle's `count()`), and never bind a `Date` into raw `sql` fragments — convert with `postEpochSeconds()` (epoch seconds is the stored unit). Both rules have integration coverage in `packages/db/src/queries.test.ts`.
 - **Migrations** are committed: `pnpm db:generate` (diff schema.ts → write SQL) → review the SQL → `pnpm db:migrate` (apply). Never `db:push` outside a throwaway dev DB.
 - **Timestamps** are `integer('...', { mode: 'timestamp' })` with `default(sql\`(unixepoch())\`)`. Drizzle returns `Date` objects.
 - **`siteSettings` is a single row** (`id = 1`). Application enforces "no second row."
@@ -105,7 +108,7 @@ A layer may only import from layers *below* it or from its own layer:
   - `src/tokens.ts` — edge-safe HMAC-SHA256 via **Web Crypto `crypto.subtle`** (`async`, `timingSafeEqualHex`, no `node:crypto`/`Buffer`). Exports `SESSION_COOKIE`, `createSessionToken()`, `verifySessionToken()`, `signToken()`, `verifyToken()` (all `async`).
   - `src/password.ts` — scrypt `hashPassword()` / `verifyPassword()` (format `scrypt:N:r:p:salt:hash`).
 - **Session cookie:** `devlog_session` (named via `SESSION_COOKIE` constant). Token format `<userId>.<hmac>`, 30-day TTL.
-- **Role enum** (as `as const` union, not `enum`): `'author' | 'subscriber'` on `users.role` (schema mirror in `@devlog/types`). Only `author` may access `/admin/*` — enforced by `requireAuthor()` in the admin layout; the edge `proxy` only verifies the session HMAC (`await verifySessionToken`).
+- **Role enum** (as `as const` union, not `enum`): `'author' | 'subscriber'` on `users.role` (schema mirror in `@devlog/types`). Only `author` may access `/admin/*` — enforced by `requireAuthor()` in the **`(dashboard)` shell layout** (`src/app/(auth)/admin/(dashboard)/layout.tsx`, R-31 route group — the login page renders outside it); the edge `proxy` only verifies the session HMAC (`await verifySessionToken`).
 - **Secrets:** `BETTER_AUTH_SECRET` (env name kept for compat) MUST be ≥32 chars in production or `getSecret()` throws.
 
 ## Server Actions

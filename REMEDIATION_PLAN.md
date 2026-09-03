@@ -1,7 +1,7 @@
 # `/dev/log` — Remediation Plan
 
 **Project:** `/dev/log — Notes from a Programmer's Desk`
-**Status:** COMPLETE — Pass 1 (2026-08-26, commit 9a83202) + Pass 2 (2026-09-03, Phase 9.5). All R-1..R-29 closed except the explicitly deferred notes below; R-30 added as the follow-on backlog item.
+**Status:** Pass 1 (2026-08-26, commit 9a83202) + Pass 2 (2026-09-03, Phase 9.5) COMPLETE (R-1..R-29). R-30 open backlog. **Pass 3 (2026-09-03) opened for the post-deployment E2E regressions R-31..R-36 — see §8 Pass 3.**
 **Companion Document:** `CODE_REVIEW_AUDIT_REPORT.md` (the audit that produced these tasks)
 **Methodology:** Test-Driven Development (Red → Green → Refactor) per `skills/tdd` + `skills/tdd-workflow`
 **Last Updated:** 2026-09-03
@@ -63,6 +63,123 @@
 
 **Acceptance gate:**
 - [ ] `pnpm test:coverage` ≥ 80/75/80/80 with no exclusions beyond the documented jsdom-untestable set.
+
+---
+
+## 8. Pass 3 — Post-Deployment E2E Regressions (2026-09-03)
+
+**Source:** `CODE_REVIEW_AUDIT_REPORT.md` Pass 3 addendum (C-31..C-34, H-32/H-33, M-31..M-33). Method unchanged: TDD (Red → Green → Refactor), atomic commits on `main`, `pnpm check` gate before push.
+
+### R-31 — Fix `/admin/login` infinite redirect loop via route-group restructure (fixes C-31, M-33)
+
+**Files:** `apps/web/src/app/(auth)/admin/layout.tsx` → `apps/web/src/app/(auth)/admin/(dashboard)/layout.tsx`; move `page.tsx`, `posts/**`, `subscribers/**`, `comments/**`, `settings/**` under `(dashboard)/`; `login/page.tsx` stays at `(auth)/admin/login/`; new `apps/web/src/app/(auth)/admin/(dashboard)/layout.test.tsx` + `login/page.test.tsx`.
+
+**RED 31.1:**
+- `login/page.test.tsx`: renders the sign-in form for an anonymous request (mock `getSession` → null) and asserts NO redirect is attempted and the `<LoginForm>` is present. (Today this passes only because the page itself is innocent — the loop lives in the layout; the test pins the contract.)
+- `(dashboard)/layout.test.tsx`: (a) `requireAuthor` resolves → renders sidebar nav (`data-testid="admin-main"` present); (b) `requireAuthor` throws `AuthorRequiredError` → a redirect to `/admin/login` is attempted.
+
+**GREEN 31.1:**
+- Move the guarded shell to `(auth)/admin/(dashboard)/layout.tsx`. Delete the `x-pathname` header sniff entirely — route groups now guarantee the login page never passes through the shell.
+- Replace hardcoded `'devlog_session'` with `SESSION_COOKIE` in the moved layout and in `login/page.tsx`.
+- URLs are unchanged (route groups don't affect paths), so `proxy.ts` and docs stay valid.
+
+**Acceptance gate:**
+- [ ] `GET /admin/login` → 200 (no redirect) in dev; `GET /admin` → 307 → `/admin/login?next=/admin`.
+- [ ] All existing admin page tests pass unchanged.
+
+---
+
+### R-32 — SQLite-portable count casts + epoch-seconds adjacency (fixes C-32, C-33, H-33)
+
+**Files:** `packages/db/src/queries.ts`, new `packages/db/src/queries.test.ts`.
+
+**RED 32.1 (first integration tests for queries.ts — the reason these bugs shipped):**
+- Spin up a real SQLite DB in tmp (`node:sqlite`-free path: reuse the committed migrator + `client.ts` against a temp `DATABASE_PATH`), insert a seeded author + 3 posts (published/draft mix) + 1 subscriber + 1 comment.
+- `getArchiveCount()` → returns number ≥ 1 (today: throws `unrecognized token: ":"`).
+- `getArchiveCount(tag)` with a joined tag → number (today: throws).
+- `getAdjacentPosts(slug)` on the middle post → `{ previous, next }` slugs correct, no throw (today: `TypeError` binding `Date`).
+- `getSubscriberStats()/getPostStats()/getCommentStats()/getConfirmedSubscriberCount()` → numeric counts (today: throw).
+
+**GREEN 32.1:**
+- Replace all six `sql<number>\`count(*)::int\`` selects with drizzle's portable `count()` helper.
+- In `getAdjacentPosts`, convert `current.publishedAt` (Date) to stored epoch **seconds** before the raw comparison: `const currentTs = current.publishedAt instanceof Date ? Math.floor(current.publishedAt.getTime() / 1000) : (current.publishedAt ?? 0);` and use `currentTs` in both raw predicates. Keep the existing ordering semantics.
+
+**REFACTOR 32.1:**
+- Extract the epoch conversion into a tiny named helper `postEpochSeconds(value: Date | number | null): number` with a unit test.
+
+**Acceptance gate:**
+- [ ] New queries integration suite green; `pnpm test` green repo-wide.
+- [ ] Manual: `/archive` 200; `/posts/[slug]` 200 with prev/next footer.
+
+---
+
+### R-33 — Standalone static-asset copy step (fixes C-34 — the reported landing-page regression)
+
+**Files:** new `apps/web/scripts/copy-standalone-assets.mjs`; `apps/web/package.json` (`postbuild`); new `apps/web/scripts/copy-standalone-assets.test.mjs`; README deploy section.
+
+**RED 33.1:**
+- Test (node:test, fs-based): given a temp fake tree `<root>/.next/static/chunks/a.css` and `<root>/public/robots.txt`, running the script with `root=<tmp>` produces `<root>/.next/standalone/apps/web/.next/static/chunks/a.css` and `<root>/.next/standalone/apps/web/public/robots.txt`; re-running is idempotent; missing source exits 0 with a warning (dev `next dev` has no standalone dir).
+
+**GREEN 33.1:**
+- Implement the copy script (fs.cp recursive, mirror `.next/static` → `.next/standalone/apps/web/.next/static` and `public` → `.next/standalone/apps/web/public`).
+- Wire as `"postbuild": "node scripts/copy-standalone-assets.mjs"` in `apps/web/package.json` so `pnpm build && pnpm start` is always complete.
+
+**Acceptance gate:**
+- [ ] Fresh `pnpm build` then standalone boot: the referenced CSS chunk and a JS chunk both return 200; landing renders styled.
+- [ ] README "Production deploy" section documents the standalone contract.
+
+---
+
+### R-34 — Wire documented `/rss.xml`, `/sitemap.xml`, `/robots.txt` rewrites (fixes H-32)
+
+**Files:** `apps/web/next.config.ts`, new `apps/web/next.config.test.ts`.
+
+**RED 34.1:**
+- Config unit test: `await rewrites()` returns exactly `['/rss.xml' → '/api/rss.xml', '/sitemap.xml' → '/api/sitemap.xml', '/robots.txt' → '/api/robots.txt']` (source/destination pairs). (Today: `[]` → red.)
+
+**GREEN 34.1:**
+- Implement the three rewrites in `next.config.ts` (keep existing headers; the `/rss.xml` + `/sitemap.xml` Content-Type headers now actually apply).
+
+**Acceptance gate:**
+- [ ] Config test green; standalone smoke: `/rss.xml`, `/sitemap.xml`, `/robots.txt` all 200 with correct content types.
+
+---
+
+### R-35 — Remove committed `*.bak` manifest cruft (fixes M-31)
+
+**Files:** `git rm` `apps/web/package.json.bak`, `package.json.bak`, `packages/{auth,db,email,types}/package.json.bak`; root `.gitignore` gains `*.bak` scoped to package manifests at repo root + `apps/` + `packages/` (skills/ untouched — read-only).
+
+**Acceptance gate:**
+- [ ] `git ls-files | grep '\.bak$'` returns only the skills wrapper `.bak`.
+
+---
+
+### R-36 — Documentation sync (fixes M-32 + deploy contract)
+
+**Files:** `README.md`, `AGENTS.md`, `CLAUDE.md`, `programmer-blog_SKILL.md`.
+
+**Tasks:**
+1. README: fix `packages/auth/` layout annotation (homegrown HMAC + scrypt, no Better Auth); add "Production deploy (standalone)" subsection documenting R-33's contract; note the three top-level feed rewrites in Routes Implemented (now true); add troubleshooting rows: "landing page unstyled in production → static assets not copied (run postbuild)", "`/admin/login` redirects forever → pre-R-31 layout, upgrade".
+2. AGENTS.md: one-line note under Next.js 16 quirks about the postbuild standalone copy; note `/rss.xml` etc. are rewrites of `/api/*`.
+3. CLAUDE.md: refresh "Validation Status" (test count changes with new suites) and auth section note that the admin shell lives in `(dashboard)/layout.tsx`.
+4. SKILL.md: add Lesson L18 (route-group shell guard vs `x-pathname` sniff) + Lesson L19 (SQLite has no `::` casts; count via drizzle `count()`; never bind `Date` — epoch seconds) + Lesson L20 (standalone deploys must copy `.next/static`).
+
+**Acceptance gate:**
+- [ ] All four docs mention no removed/renamed paths; grep for `x-pathname` and `Better Auth instance` returns nothing outside history.
+
+---
+
+### Pass 3 completion status
+
+| Task | Finding(s) | Status |
+|---|---|---|
+| R-31 route-group admin shell + SESSION_COOKIE | C-31, M-33 | ✅ Complete (commit: fix(auth) admin shell) |
+| R-32 SQLite counts + epoch adjacency + integration suite | C-32, C-33, H-33 | ✅ Complete (commit: fix(db) portable SQL) |
+| R-33 standalone asset copy + postbuild | C-34 | ✅ Complete (commit: fix(build) standalone assets) |
+| R-34 feed rewrites + config test | H-32 | ✅ Complete (commit: feat(blog) feed rewrites) |
+| R-35 remove *.bak cruft | M-31 | ✅ Complete (commit: chore remove bak) |
+| R-36 docs sync | M-32 | ✅ Complete (commit: docs sync) |
+
 
 ---
 

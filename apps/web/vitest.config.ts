@@ -46,7 +46,7 @@ export default defineConfig({
         // R-21 reconciliation (documented, not silent): the following surface
         // cannot be exercised from a jsdom unit suite and is verified by
         // other gates instead —
-        'src/middleware.ts', // Edge runtime; verified by build + manual route checks
+        'src/proxy.ts', // Edge runtime; verified by build + manual route checks
         'src/scripts/**', // CLI entry points (migrate/seed), run via pnpm db:*
         'src/app/**/opengraph-image.tsx', // next/og satori render; verified by build
         'src/app/manifest.ts', // static metadata route; asserted in icon.test.ts

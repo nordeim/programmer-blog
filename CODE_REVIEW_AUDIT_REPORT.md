@@ -650,3 +650,84 @@ A second remediation pass (MEP §13) closed every deferred item above. Re-run re
 The audit is `PASSED` for production readiness. **No open deferred findings.** Every gate in `pnpm check` is green and verifiable: types (5/5), lint (0 errors / 0 warnings), tests (272), coverage (65.36% ≥ staged gate), audit (0 vulnerabilities), build (25 routes).
 
 *End of re-audit delta.*
+
+---
+
+# Pass 3 — Post-Deployment E2E Audit (2026-09-03)
+
+**Trigger:** The live deployment at `https://programmer-blog.jesspete.shop/` regressed after the recent dependency-bump commits (`9ad1622`, `c6246d1`, `04adb53`). Browser-based E2E tests (Playwright-class, via agent-browser) were run against the live site **and** against a local reproduction (dev server + standalone production build of HEAD `46d7ffb`), and the failing surface was re-audited per the `code-review-and-audit` skill (functional + security tiers).
+
+**Reproduction fidelity:** the local standalone build of HEAD produces the exact CSS chunk (`3gvja4ex7oyrc.css`) referenced by the live HTML — the deployment is running this exact source. Every live failure below reproduces locally, so all root causes are in-repo.
+
+## Live E2E Evidence Matrix
+
+| # | Route (live) | Observed | Expected | Local repro | Root cause → task |
+|---|---|---|---|---|---|
+| E1 | `GET /` | 200, **unstyled raw HTML** (zero CSS applied) | Mockup-faithful landing (dark theme, grid, typewriter) | ✅ Styled, sections `hero/notes/snippets/archive/about` all present, 0 console errors | `/_next/static/*` 404 → C-34 / R-33 |
+| E2 | `GET /_next/static/chunks/3gvja4ex7oyrc.css` | **404** | 200 text/css | ✅ 200 after fix R-33 | C-34 |
+| E3 | `GET /archive` | **500** | 200 paginated list | ✅ 500, `SqliteError: unrecognized token: ":"` at `queries.ts:110` | C-32 / R-32 |
+| E4 | `GET /posts/stop-using-useeffect-for-everything` | **500** | 200 MDX post | ✅ 500, `TypeError: SQLite3 can only bind numbers…` at `queries.ts:136` | C-33 / R-32 |
+| E5 | `GET /admin/login` | **307 redirect loop** (`ERR_TOO_MANY_REDIRECTS`), lands on `/admin/login?next=%2Fadmin` | 200 login form | ✅ 307 loop in dev **and** standalone | C-31 / R-31 |
+| E6 | `GET /rss.xml` | **404** | 200 RSS 2.0 | ✅ 404 (`/api/rss.xml` works; no rewrite) | H-32 / R-34 |
+| E7 | `GET /snippets` | 200 | 200 | ✅ 200 | — (pass) |
+| E8 | `GET /api/github-stats` | — | 200 JSON (fallback on rate-limit) | ✅ `{"stars":82400,...}` | — (pass) |
+| E9 | Landing theme toggle + typewriter + subscribe form | ❌ no hydration (JS chunks 404) | Interactive per mockup | ✅ dark/light/cyber toggle persists (`data-theme`), typewriter animates, subscribe form → DB row `pending` + success toast | C-34 (same asset cause) |
+
+## 🔴 Critical (release blockers)
+
+### C-31 — `/admin/login` infinite redirect loop; admin surface unreachable
+- **Evidence:** `apps/web/src/app/(auth)/admin/layout.tsx:38-43` detects the login page via `headers.get('x-pathname')` — **no code path ever sets `x-pathname`** (`proxy.ts` sets no headers; no other middleware exists). The bypass therefore never matches, `requireAuthor(undefined)` throws, and line 54 `redirect('/admin/login?next=' + encodeURIComponent('' || '/admin'))` redirects the login page to itself → loop. Reproduced in `next dev` and in the standalone production build; observed live (E5).
+- **Breaches:** PRD FR-33 (admin login); CLAUDE.md "Error Handling" (route guard correctness).
+- **Fix:** **R-31** — restructure with route groups so `/admin/login` renders outside the guarded shell layout; delete the `x-pathname` hack.
+
+### C-32 — `/archive` 500: PostgreSQL-only `::int` cast in SQLite queries
+- **Evidence:** `packages/db/src/queries.ts:97` and `:107` — `sql<number>\`count(*)::int\``. SQLite has no `::` cast operator: better-sqlite3 raises `SqliteError: unrecognized token: ":"` (dev stack trace pins `getArchiveCount` → `queries.ts:110`, rendered by `archive/page.tsx:51`). Live: E3.
+- **Breaches:** PRD FR-20 (archive).
+- **Fix:** **R-32** — use drizzle's portable `count()` helper.
+
+### C-33 — `/posts/[slug]` 500: JS `Date` bound directly into raw SQL
+- **Evidence:** `packages/db/src/queries.ts:131` and `:146` — `` sql`${posts.publishedAt} > ${current.publishedAt ?? 0}` `` where `current.publishedAt` is a `Date` (drizzle `mode: 'timestamp'` returns `Date`). better-sqlite3 refuses: `TypeError: SQLite3 can only bind numbers, strings, bigints, buffers, and null` (dev stack trace at `queries.ts:136`, via `posts/[slug]/page.tsx:92`). Live: E4.
+- **Breaches:** PRD FR-21 (post page prev/next).
+- **Fix:** **R-32** — convert to epoch **seconds** (the stored unit) before binding.
+
+### C-34 — Standalone output missing `/_next/static` assets → unstyled, non-hydrated landing page in production
+- **Evidence:** `apps/web/.next/standalone/apps/web/.next/` contains **no `static/` dir** after a fresh `pnpm build` (Next.js standalone never copies it automatically — documented Next.js deploy step). The live deployment skipped the same step: HTML references `/_next/static/chunks/3gvja4ex7oyrc.css` which 404s (E1/E2), yielding the raw-HTML landing page. **This is the reported "landing page messed up" regression.**
+- **Breaches:** landing_page_mockup.html contract (AGENTS.md TL;DR; PRD FR-1..FR-18 visual requirements).
+- **Fix:** **R-33** — `postbuild` script that copies `.next/static` (and `public/`, when present) into the standalone folder, so `pnpm build && pnpm start` always serves a complete app; document the deploy contract.
+
+## 🟠 High
+
+### H-32 — Documented top-level `/rss.xml`, `/sitemap.xml`, `/robots.txt` do not resolve
+- **Evidence:** README "Routes Implemented" lists all three; `next.config.ts` even declares `Content-Type` headers for `/rss.xml` and `/sitemap.xml`, yet `rewrites()` returns `[]` and only `/api/*` routes exist. Live: E6. Downstream crawlers/subscribers following the documented URLs get 404.
+- **Breaches:** README contract; PRD FR-23/FR-24 (RSS/sitemap discoverability).
+- **Fix:** **R-34** — add the three rewrites to the `/api/*` routes + config test.
+
+### H-33 — Admin dashboard (`/admin`) 500s on the same `::int` casts (incl. `getConfirmedSubscriberCount`)
+- **Evidence:** `packages/db/src/queries.ts:204` (`getConfirmedSubscriberCount`), `:252` (`getSubscriberStats`), `:266` (`getPostStats`), `:279` (`getCommentStats`) — all `count(*)::int`. Every admin dashboard stat card query throws at runtime (callers: `admin/page.tsx:46-48`). Same class as C-32; broken out because it takes down the whole authenticated surface.
+- **Fix:** **R-32** (same change set).
+
+## 🟡 Medium
+
+### M-31 — Build cruft committed: 6 `*.bak` package manifests
+- **Evidence:** `git ls-files | grep .bak` → `apps/web/package.json.bak`, `package.json.bak`, `packages/{auth,db,email,types}/package.json.bak` (introduced in `c6246d1`).
+- **Fix:** **R-35** — remove from git; ignore `*.bak` (the `skills/` wrapper `.bak` is read-only reference material and stays).
+
+### M-32 — Doc drift: README "Repository Layout" still describes `packages/auth/` as "Better Auth instance"
+- **Evidence:** README lines ~170 (`packages/auth/  # Better Auth instance + edge-safe tokens.ts`) vs Pass 2 reality (Better Auth removed, ADR-004 amendment; homegrown HMAC + scrypt).
+- **Fix:** **R-36** — README/SKILL copy pass (see P5-style doc sync).
+
+### M-33 — Session cookie name hardcoded in two server components
+- **Evidence:** `admin/layout.tsx:47` and `admin/login/page.tsx` (`jar.get('devlog_session')`) bypass the exported `SESSION_COOKIE` constant that AGENTS.md §Auth mandates.
+- **Fix:** **R-31** (fold into the layout restructure).
+
+## 🟢 Low / ⚪ Info
+
+- **L-31** — `docs/ssh-key.txt` (private key) is committed to the repo. Accepted operational risk: the documented push workflow (`AGENTS.md` §SSH Push; README Troubleshooting) depends on it. **Recommendation:** rotate the key and move it to deploy-secret storage; never reuse it elsewhere.
+- **L-32** — Prior audit's "Edge-runtime `node:crypto` warning" note is **stale/resolved**: `packages/auth/src/tokens.ts` now uses Web Crypto `crypto.subtle` only; standalone build log shows no Edge warnings.
+- **L-33** — CSP `img-src https:` is broad (any HTTPS image host). Kept: post cover images + OG fallbacks are remote by design; `frame-ancestors 'none'`, `object-src` via `default-src 'self'`, and no `unsafe-eval` in script-src. Documented as accepted.
+
+## Pass 3 sign-off status
+
+**NOT SAFE TO SHIP** as-is: the four Criticals (C-31..C-34) break the login surface, two top content routes, and the entire production stylesheet. All are repo-level and fixed by R-31..R-34; re-audit after the remediation pass gates the release.
+
+*End of Pass 3 addendum.*

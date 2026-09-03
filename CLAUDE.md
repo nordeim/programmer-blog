@@ -62,7 +62,7 @@ Follow for all implementation tasks:
 - **App Router only.** Files under `apps/web/src/app/**`. No `pages/` directory.
 - **Server Components by default.** Add `'use client'` only when the component uses state, effects, browser APIs, or event handlers.
 - **`proxy.ts` (replaces `middleware.ts` since 16.3.4).** Next 16 renamed `middleware.ts` → `proxy.ts`; build **errors** if both exist. It runs on the Edge Runtime (`export async function proxy`) and may only import `@devlog/auth/tokens` (pure Web Crypto) — never `@devlog/auth` (which pulls better-sqlite3). Matcher `['/admin/:path*']`.
-- **`output: 'standalone'`.** Build produces `apps/web/.next/standalone/apps/web/server.js`. Start with `node apps/web/.next/standalone/apps/web/server.js` (or `pnpm --filter @devlog/web start`), not `next start`.
+- **`output: 'standalone'`.** Build produces `apps/web/.next/standalone/apps/web/server.js`. Start with `node apps/web/.next/standalone/apps/web/server.js` (or `pnpm --filter @devlog/web start`), not `next start`. **`pnpm build` runs a `postbuild` step (R-33)** that copies `.next/static` + `public/` into the standalone folder — without it every `/_next/static/*` URL 404s and the landing page renders unstyled (that was live incident C-34).
 - **`transpilePackages`** for all 5 local packages (declared in `next.config.ts`).
 - **`pageExtensions: ['ts','tsx','js','jsx','md','mdx']`** — MDX is a first-class route extension.
 - **MDX content** lives in `apps/web/content/{posts,snippets}/*.mdx`.
@@ -88,6 +88,7 @@ Follow for all implementation tasks:
 ### Drizzle ORM
 
 - **SQLite only.** `sqliteTable` from `drizzle-orm/sqlite-core`. No Postgres.
+- **SQLite dialect guardrails (R-32):** never use `::` casts in `sql` templates (PostgreSQL-only; SQLite throws `unrecognized token: ":"`) — use drizzle's `count()` helper. Never bind a `Date` into raw `sql` — convert with `postEpochSeconds()` from `@devlog/db` (epoch seconds is the stored unit). `packages/db/src/queries.test.ts` pins both against a real SQLite file.
 - **Migrations via `pnpm db:generate`** (Drizzle Kit generates SQL) → `pnpm db:migrate` (applies). Never `db:push` in prod.
 - **Timestamps** are `integer('...', { mode: 'timestamp' })` with `default(sql\`(unixepoch())\`)`.
 - **Foreign keys** use `references(() => X.id, { onDelete: 'cascade' })`.
@@ -101,8 +102,8 @@ Follow for all implementation tasks:
   - `src/tokens.ts` — edge-safe HMAC-SHA256 via **Web Crypto `crypto.subtle`** (`async`, `timingSafeEqualHex`, no `node:crypto`/`Buffer`), keyed by `BETTER_AUTH_SECRET` (env name kept for compat). Session format `<userId>.<hmac>`; transaction tokens for confirm/unsubscribe/preferences. All exports `async` since 2026-09-03 (R-A).
   - `src/password.ts` — scrypt hashing (N=2^15, r=8, p=1, format `scrypt:N:r:p:salt:hash`, `timingSafeEqual`).
   - `src/index.ts` — DB-backed `signIn` / `getSession` / `requireAuthor` (role gate) / `getSessionFromCookies` (uses `next/headers`; `next` is a peerDependency).
-- **Session cookie name:** `devlog_session` (exported as `SESSION_COOKIE` from `@devlog/auth/tokens`).
-- **Role enum** is `'author' | 'subscriber'` (stored on `users.role`, schema also in `@devlog/types`). `author` can access `/admin/*`; `subscriber` cannot. The admin layout enforces `requireAuthor()`; the edge `proxy` only verifies the session HMAC (`await verifySessionToken`).
+- **Session cookie name:** `devlog_session` (exported as `SESSION_COOKIE` from `@devlog/auth/tokens`; always read it via the constant — never hardcode the string).
+- **Role enum** is `'author' | 'subscriber'` (stored on `users.role`, schema also in `@devlog/types`). `author` can access `/admin/*`; `subscriber` cannot. The guarded admin shell lives at `(auth)/admin/(dashboard)/layout.tsx` — a route group so `/admin/login` renders OUTSIDE it (R-31: the old monolithic layout caused an infinite `/admin/login` redirect loop via an `x-pathname` header sniff). The edge `proxy` only verifies the session HMAC (`await verifySessionToken`).
 - **Production secret policy:** `getSecret()` throws when `BETTER_AUTH_SECRET` is missing/<32 chars in production (R-5).
 
 ### Resend + React Email

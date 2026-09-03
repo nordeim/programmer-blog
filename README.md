@@ -5,7 +5,7 @@
 [![TypeScript 5.9](https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS v4](https://img.shields.io/badge/Tailwind-v4-38bdf8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![pnpm](https://img.shields.io/badge/pnpm-9.15-f69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
-[![Tests: 272](https://img.shields.io/badge/tests-272-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
+[![Tests: 299](https://img.shields.io/badge/tests-299-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
 [![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red)](#license)
 
 > Notes from a programmer's desk — on code, systems, and the strange joy of debugging at 2am.
@@ -59,7 +59,9 @@ The `pnpm check` script enforces types, lint, test:coverage, and `pnpm audit --p
 pnpm check  # types + lint + coverage + audit + build, all must pass
 ```
 
-Current audit posture: **0 vulnerabilities** in `pnpm audit --prod` — 0 critical, 0 high, 0 moderate, 0 low (down from 50 total / 3 critical / 18 high at audit time). Coverage: 65.36% lines (up from 44.43%) against staged thresholds; the original 80/75/80/80 target is tracked as backlog item R-30 in `REMEDIATION_PLAN.md` (admin form suite + blog components still untested).
+Current audit posture: **0 vulnerabilities** in `pnpm audit --prod` — 0 critical, 0 high, 0 moderate, 0 low (down from 50 total / 3 critical / 18 high at audit time). Coverage: ~65% lines (up from 44.43%) against staged thresholds; the original 80/75/80/80 target is tracked as backlog item R-30 in `REMEDIATION_PLAN.md` (admin form suite + blog components still untested).
+
+**Pass 3 (2026-09-03, post-deployment):** browser E2E against the live site caught four Critical regressions the unit suite could not see — the `/admin/login` redirect loop (C-31), PostgreSQL-only `::int` casts + `Date` binds 500-ing `/archive` and `/posts/[slug]` (C-32/C-33/H-33), and the standalone deploy serving an unstyled landing page because `.next/static` was never copied (C-34). All fixed via R-31..R-34 (see `REMEDIATION_PLAN.md` §8 Pass 3) with the first real-SQLite integration suite for the query layer; full evidence in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 3" addendum.
 
 ## Tech Stack
 
@@ -167,7 +169,7 @@ programmer-blog/
 │   └── postcss.config.mjs
 ├── packages/
 │   ├── db/                            # Drizzle schema + client + migrations + seed
-│   ├── auth/                          # Better Auth instance + edge-safe tokens.ts
+│   ├── auth/                          # Homegrown HMAC auth (Web Crypto tokens.ts + scrypt password.ts) — Better Auth removed (ADR-004 amendment)
 │   ├── email/                         # React Email templates + Resend wrapper
 │   ├── types/                         # Shared Zod schemas + TS types
 │   └── config/                       # Shared ESLint, TS, Tailwind config bases
@@ -225,7 +227,7 @@ pnpm check         # = check-types && lint && test:coverage && audit --prod && b
 |---|---|
 | `pnpm check-types` | `0 errors` across all 5 packages |
 | `pnpm lint` | `0 errors` (3 pre-existing warnings are acceptable) |
-| `pnpm test` | `272 tests passing` across all packages |
+| `pnpm test` | `299 tests passing` across all packages |
 | `pnpm build` | Standalone build at `apps/web/.next/standalone/` |
 | `pnpm dev` → http://localhost:3000 | Landing page with dark theme + typewriter + marquee |
 
@@ -269,9 +271,9 @@ pnpm check         # = check-types && lint && test:coverage && audit --prod && b
 | `/posts/[slug]` | Public | MDX-rendered post with comments + prev/next |
 | `/snippets` | Public | Snippet index |
 | `/snippets/[slug]` | Public | Single snippet |
-| `/rss.xml` | Public | RSS 2.0 feed |
-| `/sitemap.xml` | Public | Sitemap |
-| `/robots.txt` | Public | Robots |
+| `/rss.xml` | Public | RSS 2.0 feed (rewrite → `/api/rss.xml`, R-34) |
+| `/sitemap.xml` | Public | Sitemap (rewrite → `/api/sitemap.xml`, R-34) |
+| `/robots.txt` | Public | Robots (rewrite → `/api/robots.txt`, R-34) |
 | `/unsubscribe` | Public | Token-verified unsubscribe page |
 | `/preferences` | Public | Subscriber preferences |
 | `/api/confirm` | Public | Subscribe token verification |
@@ -284,7 +286,7 @@ pnpm check         # = check-types && lint && test:coverage && audit --prod && b
 
 | Route | Description |
 |---|---|
-| `/admin/login` | Login form |
+| `/admin/login` | Login form (route group: renders OUTSIDE the guarded shell — R-31) |
 | `/admin` | Dashboard with 4 stat cards |
 | `/admin/posts` | Posts list + editor |
 | `/admin/posts/new` | New post editor |
@@ -293,6 +295,8 @@ pnpm check         # = check-types && lint && test:coverage && audit --prod && b
 | `/admin/subscribers/export` | CSV export endpoint |
 | `/admin/comments` | Comment moderation queue |
 | `/admin/settings` | Site settings form |
+
+**Admin shell note (R-31):** the guarded sidebar layout lives at `src/app/(auth)/admin/(dashboard)/layout.tsx` — a route group that wraps every `/admin/*` page EXCEPT `/admin/login` (which sits outside the group and renders without the shell). URLs are unchanged; the role gate (`requireAuthor`) lives in the `(dashboard)` layout.
 
 ## Testing
 
@@ -329,10 +333,14 @@ Every code change follows **Red → Green → Refactor**:
 
 - ✅ `pnpm check-types` — 0 errors across all 5 packages
 - ✅ `pnpm lint` — 0 errors, 0 warnings
-- ✅ `pnpm test` — 272 tests passing across all packages (229 web / 16 auth / 21 types / 3 db / 3 email)
-- ✅ `pnpm test:coverage` — 65.36% lines vs staged regression thresholds (80% target tracked as R-30)
-- ✅ `pnpm build` — **34 routes** (16.3.4), including `/opengraph-image`, `/posts/[slug]/opengraph-image`, `/icon.svg`, `/manifest.webmanifest` — `proxy.ts` Edge, Web Crypto, no `node:crypto` warning
+- ✅ `pnpm test` — 299 tests passing across all packages (242 web / 17 db / 16 auth / 21 types / 3 email)
+- ✅ `pnpm test:coverage` — ~65% lines vs staged regression thresholds (80% target tracked as R-30)
+- ✅ `pnpm build` — 25 routes (16.3.4), `postbuild` copies `.next/static` + `public/` into `.next/standalone/` (R-33) — `proxy.ts` Edge, Web Crypto, no `node:crypto` warning
 - ✅ `pnpm audit --prod` — **0 vulnerabilities** (`pnpm.overrides` via `pnpm-workspace.yaml` + `package.json`; `pnpm` field warning accepted on 9.15.4)
+
+### Production deploy (standalone) — R-33
+
+Next.js `output: 'standalone'` bakes the server bundle into `.next/standalone/` but leaves the client assets (`.next/static`) and `public/` **out** of it — copying them in is the operator's deploy step. The repo automates it: `pnpm build` now triggers `postbuild` (`src/scripts/copy-standalone-assets.ts`), which mirrors `.next/static → .next/standalone/apps/web/.next/static` and `public/ → .next/standalone/apps/web/public` so `pnpm build && pnpm start` always serves a complete, styled app. Skipping this step is what left the production landing page unstyled (all `/_next/static/*` 404s — audit C-34).
 
 ## The Golden Rule
 
@@ -418,6 +426,9 @@ Full troubleshooting in `skills/how-to-git-push-using-ssh-wrapper/SKILL.md`.
 
 | Issue | Cause | Fix |
 |---|---|---|
+| `pnpm start` → landing page renders as unstyled raw HTML | Production deploy missing the standalone static assets — every `/_next/static/*` URL 404s (audit C-34) | Rebuild with the R-33 postbuild step (`pnpm build` runs it automatically), or copy `.next/static` into `.next/standalone/apps/web/.next/static` manually |
+| `/admin/login` redirects to itself forever (`ERR_TOO_MANY_REDIRECTS`) | Pre-R-31 admin shell layout wrapped the login page and gated it on an `x-pathname` header that nothing set (audit C-31) | Upgrade to the route-group shell at `src/app/(auth)/admin/(dashboard)/layout.tsx`; `/admin/login` renders outside it |
+| `/archive` or `/posts/[slug]` → 500 with `unrecognized token: ":"` / `can only bind numbers` | PostgreSQL-only `count(*)::int` casts and `Date` binds in `packages/db/src/queries.ts` (audit C-32/C-33) | Fixed in R-32 (portable `count()` + `postEpochSeconds`); if you reintroduce raw SQL, bind epoch seconds and use drizzle `count()` |
 | `git push` → `Permission denied (publickey)` | OpenSSH not installed in the environment | Use the SSH wrapper: `GIT_SSH_COMMAND="skills/how-to-git-push-using-ssh-wrapper/scripts/ssh_git_wrapper_v3.py -i docs/ssh-key.txt -o StrictHostKeyChecking=accept-new" git push origin main` |
 | `pnpm start` → `next start does not work with output: standalone` | `next.config.ts` `output:'standalone'` but `next start` ignores standalone bundle | Use `pnpm start` → `node apps/web/.next/standalone/apps/web/server.js` (`pnpm --filter @devlog/web start:next` for `next start`) |
 | Build fails with `better-sqlite3` error in `proxy.ts` | `proxy.ts` imported `@devlog/auth` (root) which pulls `better-sqlite3` into the Edge bundle | Import `@devlog/auth/tokens` instead — it's pure Web Crypto `crypto.subtle` (`async`, no Node deps) |

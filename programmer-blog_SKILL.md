@@ -1214,6 +1214,36 @@ See `apps/web/src/app/layout.tsx:60-97`.
 
 ---
 
+### 12.18 L18 — A Layout Guard Must Never Guess Its Route (Pass 3, C-31)
+
+**What happened:** The admin shell layout wrapped ALL of `/admin/*` — including `/admin/login` — and tried to detect the login page with `headers.get('x-pathname')`. Nothing ever set that header, so anonymous `/admin/login` visits ran `requireAuthor(undefined)` → `redirect('/admin/login?next=/admin')` → the layout again → **infinite redirect loop** in production (`ERR_TOO_MANY_REDIRECTS`). It shipped because no test rendered the layout, and dev testing always hit `/admin` (which "worked" by redirecting).
+
+**Why it mattered:** the entire admin surface was unreachable in production; the login page — the one route that must be public — was the broken one.
+
+**How to avoid:** **route groups, not runtime sniffing.** Move the guarded shell to `(auth)/admin/(dashboard)/layout.tsx` so the login page sits outside it by construction (URLs unchanged). Never invent request headers as control flow; if you need the pathname in a layout, the structure is wrong. Pin it: the layout test asserts no non-comment line references `x-pathname`, and a login-page test asserts no redirect for anonymous visitors.
+
+---
+
+### 12.19 L19 — Mocked DB Tests Made SQLite Dialect Errors Invisible (Pass 3, C-32/C-33/H-33)
+
+**What happened:** Two classes of runtime SQL bugs shipped behind a fully green 272-test suite: six `count(*)::int` selects (PostgreSQL cast syntax — SQLite throws `unrecognized token: ":"`, 500-ing `/archive` and every admin stats card) and a `Date` object bound into a raw `sql` fragment in `getAdjacentPosts` (better-sqlite3 refuses Date binds, 500-ing every `/posts/[slug]` page).
+
+**Why it mattered:** the web test suite mocks `@devlog/db` entirely, and `packages/db` had tests only for the schema — the query layer had **zero real-DB coverage**, so both bugs were invisible to CI and only exploded against a real SQLite file.
+
+**How to avoid:** **every persistence layer needs at least one integration suite against the real engine.** `packages/db/src/queries.test.ts` now runs the committed migrations against a temp SQLite file (`DATABASE_PATH`) and pins counts, adjacency and stats. Dialect rules of the road: use drizzle's portable `count()` (never `::` casts), and bind epoch **seconds** via `postEpochSeconds()` — drizzle `{ mode: 'timestamp' }` columns store seconds but read back as `Date`, which is not a valid SQLite bind type.
+
+---
+
+### 12.20 L20 — Standalone Builds Don't Ship Their Own Static Assets (Pass 3, C-34)
+
+**What happened:** The reported "landing page is broken" incident: the live site served correct HTML referencing `/_next/static/chunks/3gvja4ex7oyrc.css` — which 404'd, along with every JS chunk. The page rendered as unstyled raw HTML with zero hydration. Root cause: `output: 'standalone'` deliberately excludes `.next/static` and `public/` from `.next/standalone/`, and the deployment skipped the copy step the Next.js docs require.
+
+**Why it mattered:** a pixel-perfect mockup port means nothing if the stylesheet 404s; the site looked *worse than broken* — it looked like 1994.
+
+**How to avoid:** **make the correct deploy the default path.** `pnpm build` now runs `postbuild` (`src/scripts/copy-standalone-assets.ts`) mirroring `.next/static → .next/standalone/apps/web/.next/static` and `public/` alongside, so `pnpm build && pnpm start` is always self-contained. The script is integration-tested (copy, public, idempotency, missing-input warnings). Diagnostic shortcut for "unstyled Next.js page": `curl -I` the CSS chunk from the HTML — if it 404s, check the standalone folder before blaming the CSS.
+
+---
+
 ## 13. Pitfalls to Avoid
 
 ### 13.1 Architecture Pitfalls
