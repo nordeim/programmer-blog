@@ -63,7 +63,17 @@ const nextConfig: NextConfig = {
   },
 
   async rewrites() {
-    return [];
+    // R-34 (Pass 3, fixes H-32): README's "Routes Implemented" contract
+    // lists the top-level /rss.xml, /sitemap.xml and /robots.txt URLs —
+    // the canonical URLs subscribers and crawlers use. The handlers live
+    // under /api/*; these rewrites make the documented URLs resolve while
+    // the Content-Type headers above keep the correct MIME types.
+    // (Pinned by src/next.config.test.ts.)
+    return [
+      { source: '/rss.xml', destination: '/api/rss.xml' },
+      { source: '/sitemap.xml', destination: '/api/sitemap.xml' },
+      { source: '/robots.txt', destination: '/api/robots.txt' },
+    ];
   },
 };
 
