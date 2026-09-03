@@ -13,6 +13,6 @@
     "./tailwind/base.css": "./tailwind/base.css"
   },
   "devDependencies": {
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.3"
   }
 }

@@ -22,11 +22,11 @@
     "@devlog/types": "workspace:*"
   },
   "peerDependencies": {
-    "next": ">=16.0.0"
+    "next": ">=15.0.0"
   },
   "devDependencies": {
     "@devlog/config": "workspace:*",
-    "typescript": "^5.9.3",
+    "typescript": "^5.9.0",
     "vitest": "^3.2.7"
   }
 }

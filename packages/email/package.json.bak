@@ -19,18 +19,18 @@
   "dependencies": {
     "@devlog/types": "workspace:*",
     "@react-email/components": "^0.0.25",
-    "@react-email/render": "^1.4.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "react-email": "^3.0.7",
-    "resend": "^4.8.0"
+    "@react-email/render": "^1.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-email": "^3.0.0",
+    "resend": "^4.0.0"
   },
   "devDependencies": {
     "@devlog/config": "workspace:*",
-    "@types/node": "^20.19.43",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.5",
-    "typescript": "^5.9.3",
+    "@types/node": "^20.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.9.0",
     "vitest": "^3.2.7"
   }
 }

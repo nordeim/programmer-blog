@@ -19,11 +19,11 @@
     "lint": "eslint src/"
   },
   "dependencies": {
-    "zod": "^3.25.0"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@devlog/config": "workspace:*",
-    "typescript": "^5.9.0",
+    "typescript": "^5.9.3",
     "vitest": "^3.2.7"
   }
 }
