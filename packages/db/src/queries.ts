@@ -1,11 +1,32 @@
 /**
  * @devlog/db/queries — reusable Drizzle query functions.
  * Each is a thin wrapper returning typed results. Server-side only.
+ *
+ * R-32 (Pass 3): this layer now has real-SQLite integration coverage
+ * (queries.test.ts) after two production-breaking bugs shipped here
+ * unobserved: PostgreSQL-only `count(*)::int` casts (SQLite raises
+ * `unrecognized token: ":"`) and a JS `Date` bound into raw SQL
+ * (better-sqlite3 refuses non-numeric binds). Rules of the road:
+ *   - use drizzle's portable `count()` helper, never `::` casts;
+ *   - raw `sql` fragments against timestamp columns must bind epoch
+ *     SECONDS (the stored unit), via `postEpochSeconds` below.
  */
-import { and, desc, eq, isNotNull, isNull, like, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, isNotNull, isNull, like, or, sql } from 'drizzle-orm';
 
 import { db } from './client';
 import { comments, posts, postsToTags, siteSettings, subscribers, tags, users } from './schema';
+
+/**
+ * R-32: normalize a timestamp value to the unit SQLite stores (epoch
+ * seconds) so it can be safely bound into a raw `sql` predicate.
+ * Drizzle's `{ mode: 'timestamp' }` columns read back as `Date` objects,
+ * and better-sqlite3 rejects `Date` binds.
+ */
+export function postEpochSeconds(value: Date | number | null | undefined): number {
+  if (value instanceof Date) return Math.floor(value.getTime() / 1000);
+  if (typeof value === 'number') return Math.floor(value);
+  return 0;
+}
 
 // ── Posts ──────────────────────────────────────────────────────────────────
 export async function getRecentPosts(limit = 3) {
@@ -94,7 +115,7 @@ export async function getArchiveCount(tagSlug?: string, query?: string) {
 
   if (tagSlug && tagSlug.trim().length > 0) {
     const result = db
-      .select({ count: sql<number>`count(*)::int` })
+      .select({ count: count() })
       .from(posts)
       .innerJoin(postsToTags, eq(postsToTags.postId, posts.id))
       .innerJoin(tags, eq(tags.id, postsToTags.tagId))
@@ -104,7 +125,7 @@ export async function getArchiveCount(tagSlug?: string, query?: string) {
   }
 
   const result = db
-    .select({ count: sql<number>`count(*)::int` })
+    .select({ count: count() })
     .from(posts)
     .where(and(...conditions))
     .get();
@@ -120,6 +141,10 @@ export async function getAdjacentPosts(slug: string) {
   const current = await db.select().from(posts).where(eq(posts.slug, slug)).limit(1).get();
   if (!current) return { previous: null, next: null };
 
+  // R-32 (C-33): bind epoch SECONDS, not a Date object — better-sqlite3
+  // rejects Date binds and 500s every post page.
+  const currentTs = postEpochSeconds(current.publishedAt);
+
   const next =
     db
       .select({ slug: posts.slug, title: posts.title })
@@ -128,7 +153,7 @@ export async function getAdjacentPosts(slug: string) {
         and(
           eq(posts.status, 'published'),
           isNotNull(posts.publishedAt),
-          sql`${posts.publishedAt} > ${current.publishedAt ?? 0}`,
+          sql`${posts.publishedAt} > ${currentTs}`,
         ),
       )
       .orderBy(posts.publishedAt)
@@ -143,7 +168,7 @@ export async function getAdjacentPosts(slug: string) {
         and(
           eq(posts.status, 'published'),
           isNotNull(posts.publishedAt),
-          sql`${posts.publishedAt} < ${current.publishedAt ?? 0}`,
+          sql`${posts.publishedAt} < ${currentTs}`,
           sql`${posts.slug} != ${slug}`,
         ),
       )
@@ -201,7 +226,7 @@ export async function getSubscriberByToken(token: string, kind: 'confirm' | 'uns
 
 export async function getConfirmedSubscriberCount() {
   const result = db
-    .select({ count: sql<number>`count(*)::int` })
+    .select({ count: count() })
     .from(subscribers)
     .where(eq(subscribers.status, 'confirmed'))
     .get();
@@ -249,7 +274,7 @@ export async function getAuthor() {
 // ── Newsletter stats (for admin dashboard) ──────────────────────────────────
 export async function getSubscriberStats() {
   const rows = db
-    .select({ status: subscribers.status, count: sql<number>`count(*)::int` })
+    .select({ status: subscribers.status, count: count() })
     .from(subscribers)
     .groupBy(subscribers.status)
     .all();
@@ -263,7 +288,7 @@ export async function getSubscriberStats() {
 
 export async function getPostStats() {
   const rows = db
-    .select({ status: posts.status, count: sql<number>`count(*)::int` })
+    .select({ status: posts.status, count: count() })
     .from(posts)
     .groupBy(posts.status)
     .all();
@@ -276,7 +301,7 @@ export async function getPostStats() {
 
 export async function getCommentStats() {
   const rows = db
-    .select({ status: comments.status, count: sql<number>`count(*)::int` })
+    .select({ status: comments.status, count: count() })
     .from(comments)
     .groupBy(comments.status)
     .all();
