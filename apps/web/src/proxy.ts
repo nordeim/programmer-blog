@@ -1,35 +1,28 @@
 /**
- * apps/web/src/middleware.ts — FR-33 admin guard (Layer 0).
+ * apps/web/src/proxy.ts — FR-33 admin guard (Layer 0).
  *
- * The MEP calls this `proxy.ts` (Next.js 16 renamed `middleware.ts`
- * to `proxy.ts`); both filenames are accepted by the framework. We
- * use `middleware.ts` for broader ecosystem compatibility.
+ * Next.js 16 renamed `middleware.ts` → `proxy.ts`. This file is the
+ * Edge Runtime proxy that gates `/admin/*`. Kept as `proxy.ts` to
+ * silence `⚠ The "middleware" file convention is deprecated`.
+ * `middleware.ts` is kept as a shim re-export for ecosystem compat.
  *
  * Reads the session cookie. For `/admin/*` (except `/admin/login`),
  * if no session or role !== 'author', redirects to `/admin/login`.
- * Also sets a baseline set of security headers on every response.
  *
  * Per PAD §6.4 (security headers) + MEP §7 Phase 6 RED/GREEN 6.1.
  */
 import { SESSION_COOKIE, verifySessionToken } from '@devlog/auth/tokens';
 import { NextResponse, type NextRequest } from 'next/server';
 
-// Import only the edge-safe pure-crypto helpers — not the full
-// @devlog/auth root (which pulls in better-sqlite3 + drizzle-orm
-// and is incompatible with the Edge Runtime).
-
-
 const PUBLIC_ADMIN_PATHS = ['/admin/login'];
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Only gate /admin/* routes. Everything else is public.
   if (!pathname.startsWith('/admin')) {
     return NextResponse.next();
   }
 
-  // Allow the login page itself to be served without a session.
   if (PUBLIC_ADMIN_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return NextResponse.next();
   }
