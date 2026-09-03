@@ -4,7 +4,6 @@
  * React Email template sent when a new essay is published to
  * confirmed subscribers.
  */
-import * as React from 'react';
 import {
   Body,
   Button,
@@ -17,6 +16,7 @@ import {
   Section,
   Text,
 } from '@react-email/components';
+import * as React from 'react';
 
 interface NewEssayEmailProps {
   postTitle: string;

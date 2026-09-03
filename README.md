@@ -5,13 +5,13 @@
 [![TypeScript 5.9](https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS v4](https://img.shields.io/badge/Tailwind-v4-38bdf8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![pnpm](https://img.shields.io/badge/pnpm-9.15-f69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
-[![Tests: 169+](https://img.shields.io/badge/tests-169+-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
+[![Tests: 272](https://img.shields.io/badge/tests-272-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
 [![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red)](#license)
 
 > Notes from a programmer's desk — on code, systems, and the strange joy of debugging at 2am.
 > By Alex Rivera. New essay every other Tuesday.
 
-A production-grade programmer blog built as a pnpm + Turborepo monorepo: **Next.js 16** (App Router), **React 19**, **Tailwind CSS v4** (CSS-first `@theme`), **Drizzle ORM** + **better-sqlite3**, **Better Auth**, **Resend** + **React Email**, and **Vitest**. The dynamic landing page reproduces `landing_page_mockup.html` pixel-for-pixel across dark / light / cyber themes.
+A production-grade programmer blog built as a pnpm + Turborepo monorepo: **Next.js 16** (App Router), **React 19**, **Tailwind CSS v4** (CSS-first `@theme`), **Drizzle ORM** + **better-sqlite3**, homegrown **HMAC-SHA256 + scrypt auth** (`@devlog/auth`, ADR-004 amendment), **Resend** + **React Email**, and **Vitest**. The dynamic landing page reproduces `landing_page_mockup.html` pixel-for-pixel across dark / light / cyber themes.
 
 The architecture enforces a strict 5-layer golden rule, TDD (Red→Green→Refactor), trunk-based development on `main` with Conventional Commits, and a Zod-validated env layer that fails fast at boot.
 
@@ -39,7 +39,7 @@ The repo ships with a triple-spec engineering baseline plus a post-build audit a
 
 - [`Project_Requirements_Document.md`](./Project_Requirements_Document.md) — **PRD v1.1**. The *what* and *why*. Defines 60+ functional requirements (FR-1 through FR-60) traced to mockup elements. Revision block v1.1 records the audit-driven amendments.
 - [`Project_Architecture_Document.md`](./Project_Architecture_Document.md) — **PAD**. The *how*. 7 ADRs, the 5-layer golden rule, annotated directory tree, security architecture, testing strategy.
-- [`Master_Execution_Plan.md`](./Master_Execution_Plan.md) — **MEP v1.1**. The *in what order*. 9 phases (8 build phases + Phase 9 audit remediation), each with a file manifest, a TDD RED→GREEN→REFACTOR checklist, and an acceptance gate.
+- [`Master_Execution_Plan.md`](./Master_Execution_Plan.md) — **MEP v1.2**. The *in what order*. 9 build phases + Phase 9 (audit remediation) + Phase 9.5 (second remediation pass), each with a file manifest, a TDD RED→GREEN→REFACTOR checklist, and an acceptance gate.
 - [`CODE_REVIEW_AUDIT_REPORT.md`](./CODE_REVIEW_AUDIT_REPORT.md) — **Audit report**. 5-phase deep audit: lint/types → security → quality (12 categories) → tests → spec alignment. 9 Critical / 30 High / 24 Medium / 16 Low findings, each with file:line, PRD clause breached, and remediation pointer. Includes a re-audit delta showing resolution status.
 - [`REMEDIATION_PLAN.md`](./REMEDIATION_PLAN.md) — **Remediation plan**. 29 TDD-sequenced tasks (R-1 to R-29) across 5 phases (P1 security, P2 functional, P3 alignment, P4 quality, P5 docs). Each task has RED test, GREEN implementation, REFACTOR step, and acceptance gate.
 - [`CLAUDE.md`](./CLAUDE.md) — Project-wide conventions for coding agents (Meticulous Approach, TypeScript strictness, env vars).
@@ -48,13 +48,18 @@ The repo ships with a triple-spec engineering baseline plus a post-build audit a
 
 ## Audit Status
 
-The codebase has passed a full 5-phase code review and security audit (per the `code-review-and-audit` skill, `deep` mode). All 9 Critical findings and 6 of 8 High findings have been resolved in code; 2 High findings (self-hosted fonts, dynamic OG image generation) and 4 Medium findings are documented as deferred to v1.5. The `pnpm check` script enforces types, lint, test:coverage, and `pnpm audit --prod` as gates:
+The codebase has passed a full 5-phase code review and security audit (per the `code-review-and-audit` skill, `deep` mode) **plus a second remediation pass that closed every deferred task**:
+
+- **Pass 1** (commit `9a83202`): resolved all 9 Critical findings and the highest-impact High findings (password scrypt hashing, signed confirm tokens, prod secret enforcement, admin role gate, dependency bumps).
+- **Pass 2** (see `Master_Execution_Plan.md` §13 "Phase 9.5"): removed `better-auth` entirely (ADR-004 amendment — homegrown HMAC-SHA256 + scrypt, now dependency-free), self-hosted fonts via `next/font/local` (132KB, zero Google Fonts requests), dynamic OG images via `next/og` (site + per-post), favicon + web manifest, populated `@devlog/types` (shared Zod schemas + markdown-aware reading time), replaced the test cookie backdoor with `next/headers`, and ~80 new tests.
+
+The `pnpm check` script enforces types, lint, test:coverage, and `pnpm audit --prod` as gates:
 
 ```bash
 pnpm check  # types + lint + coverage + audit + build, all must pass
 ```
 
-Current audit posture: **0 critical, 1 high, 4 moderate, 1 low** in `pnpm audit --prod` (down from 50 total / 3 critical / 18 high). The remaining high is a stylistic advisory in a transitive dev dependency.
+Current audit posture: **0 vulnerabilities** in `pnpm audit --prod` — 0 critical, 0 high, 0 moderate, 0 low (down from 50 total / 3 critical / 18 high at audit time). Coverage: 65.36% lines (up from 44.43%) against staged thresholds; the original 80/75/80/80 target is tracked as backlog item R-30 in `REMEDIATION_PLAN.md` (admin form suite + blog components still untested).
 
 ## Tech Stack
 
@@ -68,7 +73,7 @@ Current audit posture: **0 critical, 1 high, 4 moderate, 1 low** in `pnpm audit 
 | Styling | Tailwind CSS | v4 (CSS-first `@theme`) | No `tailwind.config.ts`. Tokens in `globals.css` + `packages/config/tailwind/base.css`. |
 | ORM | drizzle-orm | `^0.40` | SQLite-only; migrations via `drizzle-kit`. |
 | Database | better-sqlite3 | `^12` | Single file at `apps/web/devlog.db`. No Postgres. |
-| Auth | better-auth | `^1.6` | Instance in `packages/auth`; edge-safe tokens split to `tokens.ts`. |
+| Auth | @devlog/auth (homegrown) | — | HMAC-SHA256 session/transaction tokens + scrypt passwords. Better Auth removed per ADR-004 amendment (R-2). |
 | Email | Resend + React Email | `^4` / `^3` | Degrades gracefully without `RESEND_API_KEY` in dev. |
 | Validation | Zod | `^3.25` | At every boundary: Server Action inputs, env vars, API bodies. |
 | Client state | Zustand | `^5` | Theme + UI stores. Never for server state. |
@@ -218,7 +223,7 @@ pnpm check         # = check-types && lint && test && build
 |---|---|
 | `pnpm check-types` | `0 errors` across all 5 packages |
 | `pnpm lint` | `0 errors` (3 pre-existing warnings are acceptable) |
-| `pnpm test` | `154+ tests passing` across all packages |
+| `pnpm test` | `272 tests passing` across all packages |
 | `pnpm build` | Standalone build at `apps/web/.next/standalone/` |
 | `pnpm dev` → http://localhost:3000 | Landing page with dark theme + typewriter + marquee |
 
@@ -321,10 +326,11 @@ Every code change follows **Red → Green → Refactor**:
 ## Validation Status
 
 - ✅ `pnpm check-types` — 0 errors across all 5 packages
-- ✅ `pnpm lint` — 0 errors, 3 pre-existing warnings
-- ✅ `pnpm test` — 154+ tests passing across all packages
-- ✅ `pnpm build` — Standalone build at `apps/web/.next/standalone/`
-- ⚠️ `pnpm audit --prod` — 50 vulnerabilities (5 low / 24 moderate / 18 high / 3 critical). The 3 critical issues are in transitive Next.js dependencies that will be patched when Next.js 16 ships; see `docs/SECURITY-NOTES.md` (to be added) for remediation plan.
+- ✅ `pnpm lint` — 0 errors, 0 warnings
+- ✅ `pnpm test` — 272 tests passing across all packages (229 web / 16 auth / 21 types / 3 db / 3 email)
+- ✅ `pnpm test:coverage` — 65.36% lines vs staged regression thresholds (80% target tracked as R-30)
+- ✅ `pnpm build` — 25 routes, including `/opengraph-image`, `/posts/[slug]/opengraph-image`, `/icon.svg`, `/manifest.webmanifest`
+- ✅ `pnpm audit --prod` — **0 vulnerabilities** (resolved via dependency removal + `pnpm.overrides`)
 
 ## The Golden Rule
 

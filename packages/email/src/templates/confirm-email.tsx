@@ -7,7 +7,6 @@
  *
  * Per PAD §4.3 ADR-007.
  */
-import * as React from 'react';
 import {
   Body,
   Button,
@@ -21,6 +20,7 @@ import {
   Section,
   Text,
 } from '@react-email/components';
+import * as React from 'react';
 
 interface ConfirmEmailProps {
   email: string;

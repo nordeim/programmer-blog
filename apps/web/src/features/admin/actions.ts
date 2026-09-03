@@ -16,32 +16,19 @@
 'use server';
 
 import 'server-only';
+import { calculateReadTime, postInputSchema, slugify } from '@devlog/types';
 import { eq } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 import { z } from 'zod';
 
+
 import { isAuthorRequiredError, requireAuthor } from '@/lib/auth';
 import { db, schema } from '@/lib/db';
 
-const MAX_TITLE = 200;
-const MAX_EXCERPT = 500;
-const MAX_CONTENT = 100_000;
-
-export const postInputSchema = z.object({
-  title: z.string().trim().min(1, 'Title is required.').max(MAX_TITLE),
-  slug: z
-    .string()
-    .trim()
-    .min(1)
-    .max(200)
-    .regex(/^[a-z0-9](?:[a-z0-9-]{0,80}[a-z0-9])?$/, 'Slug must be lowercase kebab-case.'),
-  excerpt: z.string().trim().min(1, 'Excerpt is required.').max(MAX_EXCERPT),
-  contentMdx: z.string().trim().min(1, 'Content is required.').max(MAX_CONTENT),
-  status: z.enum(['draft', 'published', 'archived']).default('draft'),
-  publishedAt: z.string().optional(),
-  tagSlugs: z.array(z.string()).optional(),
-});
-export type PostInput = z.infer<typeof postInputSchema>;
+// R-18: the schema now lives in @devlog/types (single source of truth,
+// shared with future writers). Re-export for the existing tests.
+export { postInputSchema };
+export type PostInput = import('@devlog/types').PostInput;
 
 export interface AdminSuccess {
   ok: true;
@@ -70,21 +57,18 @@ async function requireAuthorFromCookie() {
   return requireAuthor(cookie);
 }
 
+// R-24: reading time is now markdown-aware — fenced code, inline code,
+// heading markers, emphasis and link syntax don't inflate the estimate
+// (@devlog/types calculateReadTime, 200 wpm).
 function computeReadingTime(content: string): number {
-  // 200 words per minute, per industry convention.
-  const words = content.trim().split(/\s+/).length;
-  return Math.max(1, Math.round(words / 200));
+  return calculateReadTime(content);
 }
 
+// R-18: slugify now comes from @devlog/types (identical semantics to the
+// former inline slugifyTitle: lowercase, strip punctuation, collapse
+// dashes, cap at 80).
 function slugifyTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .trim()
-    .replace(/[^\p{L}\p{N}\s-]/gu, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 80);
+  return slugify(title);
 }
 
 export async function createPost(input: unknown): Promise<AdminResult & { postId?: string }> {

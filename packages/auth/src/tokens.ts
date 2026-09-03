@@ -6,7 +6,15 @@
  *
  * Used by apps/web/src/middleware.ts (Edge Runtime) so that the
  * middleware can verify session cookies without pulling in the
- * full Better Auth + drizzle-orm stack.
+ * drizzle-orm + better-sqlite3 stack.
+ *
+ * R-2 (audit remediation / ADR-004 amendment): Better Auth was formally
+ * substituted by this homegrown HMAC-SHA256 token design. Rationale:
+ * Better Auth pulled ~1.2MB of dependencies (incl. styled-jsx →
+ * @babel/core) for a single-author blog, while v1 only needs
+ * email/password sign-in with an author-role gate. The HMAC design is
+ * edge-safe (this file), server-only for DB lookups (index.ts), and
+ * scrypt-hashed passwords (password.ts).
  *
  * Token format: `<payload>.<hmac-sha256>` where the HMAC is keyed
  * by `BETTER_AUTH_SECRET` (32+ bytes). The payload is opaque to

@@ -4,7 +4,6 @@
  * React Email template sent when a subscriber clicks the unsubscribe
  * link. Confirms they have been removed from the list.
  */
-import * as React from 'react';
 import {
   Body,
   Button,
@@ -17,6 +16,7 @@ import {
   Section,
   Text,
 } from '@react-email/components';
+import * as React from 'react';
 
 interface UnsubscribeConfirmationProps {
   email: string;

@@ -7,7 +7,7 @@ Compact instructions for AI coding agents working in `/dev/log`. Read before edi
 - **Package manager is pnpm only.** Never `npm install` or `yarn`. Run scripts via `pnpm <script>`.
 - **Trunk-based on `main`.** No feature branches, no PRs. Conventional Commits with `Refs: FR-N` footer.
 - **TDD is mandatory.** Write the failing test first. Tests co-located: `Foo.tsx` ↔ `Foo.test.tsx`.
-- **The full quality gate is `pnpm check`** (= `check-types && lint && test && build`). All must pass before push.
+- **The full quality gate is `pnpm check`** (= `check-types && lint && test:coverage && audit --prod && build`). All must pass before push.
 - **`landing_page_mockup.html` is the source of truth** for the landing page. `apps/web/src/app/globals.css` + `packages/config/tailwind/base.css` are 1:1 ports. Do not modify CSS without updating the mockup.
 
 ## Commands
@@ -34,7 +34,7 @@ Compact instructions for AI coding agents working in `/dev/log`. Read before edi
 ```
 apps/web/         # Next.js 16 app (the only app)
 packages/db/      # Drizzle schema + client + migrations (consumed via @devlog/db)
-packages/auth/    # Better Auth instance (root) + tokens.ts (edge-safe split)
+packages/auth/    # Homegrown HMAC auth (R-2: better-auth removed) — index.ts (Node) + tokens.ts (edge-safe split)
 packages/email/   # React Email templates + Resend wrapper
 packages/types/   # Shared Zod schemas + TS types
 packages/config/  # Shared ESLint / TS / Tailwind bases
@@ -96,19 +96,22 @@ A layer may only import from layers *below* it or from its own layer:
 - **`siteSettings` is a single row** (`id = 1`). Application enforces "no second row."
 - **Type inference** via `typeof posts.$inferSelect`. Never hand-write row types.
 
-## Auth — Better Auth + Edge-Safe Tokens
+## Auth — Homegrown HMAC (Better Auth removed per ADR-004 amendment)
 
-- **Instance:** `packages/auth/src/index.ts` — exported as `auth`. Pulls Better Auth + Drizzle + better-sqlite3 (Node-only).
-- **Edge-safe tokens:** `packages/auth/src/tokens.ts` — pure Web Crypto, no Node deps. Exports `SESSION_COOKIE`, `signSessionToken()`, `verifySessionToken()`.
-- **Session cookie:** `devlog_session` (named via `SESSION_COOKIE` constant).
-- **Role enum** (as `as const` union, not `enum`): `'author' | 'subscriber'` on `users.role`. Only `author` may access `/admin/*`.
+- **`better-auth` is no longer a dependency** (audit remediation R-2). All auth lives in `@devlog/auth`:
+  - `src/index.ts` — `signIn` / `getSession` / `requireAuthor` / `signOut` (Node-only: Drizzle + better-sqlite3). `getSessionFromCookies` uses `next/headers` (peer dep).
+  - `src/tokens.ts` — edge-safe HMAC-SHA256 (`node:crypto`, `timingSafeEqual`). Exports `SESSION_COOKIE`, `createSessionToken()`, `verifySessionToken()`, `signToken()`, `verifyToken()`.
+  - `src/password.ts` — scrypt `hashPassword()` / `verifyPassword()` (format `scrypt:N:r:p:salt:hash`).
+- **Session cookie:** `devlog_session` (named via `SESSION_COOKIE` constant). Token format `<userId>.<hmac>`, 30-day TTL.
+- **Role enum** (as `as const` union, not `enum`): `'author' | 'subscriber'` on `users.role` (schema mirror in `@devlog/types`). Only `author` may access `/admin/*` — enforced by `requireAuthor()` in the admin layout; the edge middleware only verifies the session HMAC.
+- **Secrets:** `BETTER_AUTH_SECRET` (env name kept for compat) MUST be ≥32 chars in production or `getSecret()` throws.
 
 ## Server Actions
 
 - **Location:** `apps/web/src/features/{feature}/actions.ts` with `'use server'` at the top.
 - **Return shape:** discriminated union — `{ status: 'ok', data } | { status: 'error', fieldErrors?, message? }`. **Never throw** across the network boundary.
 - **Validate every input with Zod.** Never read `FormData` without parsing through a schema.
-- **Auth check first.** Use `verifySessionToken()` from `@devlog/auth/tokens` — never reach into `req.cookies` and parse JWTs yourself.
+- **Auth check first.** Call `requireAuthor(cookieValue)` from `@/lib/auth` (or `verifySessionToken()` from `@devlog/auth/tokens` on the edge) — never hand-parse the session cookie yourself.
 
 ## Testing Conventions
 

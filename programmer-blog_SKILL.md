@@ -17,7 +17,7 @@ tags:
   - react-19
   - tailwind-v4
   - drizzle-orm
-  - better-auth
+  - hmac-auth
   - monorepo
   - tdd
 ---
@@ -109,7 +109,7 @@ The repo explicitly rejects: Bootstrap grids, Material Design elevation, default
 | Styling | Tailwind CSS | v4 (CSS-first `@theme`) | No `tailwind.config.ts`. Tokens in `globals.css` + `packages/config/tailwind/base.css`. |
 | ORM | drizzle-orm + drizzle-kit | `^0.40` | SQLite-only. Migrations via `drizzle-kit generate`. |
 | Database | better-sqlite3 | `^12` | Single file at `apps/web/devlog.db`. No Postgres, no Redis. |
-| Auth | better-auth | `^1.6` | Instance in `packages/auth/src/index.ts`; edge-safe tokens split to `tokens.ts`. |
+| Auth | @devlog/auth (homegrown) | — | HMAC-SHA256 tokens (`tokens.ts`, edge-safe) + scrypt passwords (`password.ts`). Better Auth removed per ADR-004 amendment (R-2). |
 | Email | Resend + React Email | `^4` / `^3` | Degrades gracefully without `RESEND_API_KEY` in dev. |
 | Validation | Zod | `^3.25` | At every boundary: env, Server Action inputs, API bodies. |
 | Client state | Zustand | `^5` | Theme + UI stores only. Never for server state. |
@@ -1042,7 +1042,7 @@ Run the live-site verification commands in §10.5 against the deployed URL. Spec
 
 **Why it mattered:** The Edge Runtime can't bundle native Node addons like `better-sqlite3`. The full `@devlog/auth` package transitively imports it via `@devlog/db`.
 
-**How to avoid:** The split between `packages/auth/src/index.ts` (full Better Auth + Drizzle) and `packages/auth/src/tokens.ts` (pure Web Crypto) is **architectural**. The middleware can only import `@devlog/auth/tokens`. See ADR-002 in the PAD.
+**How to avoid:** The split between `packages/auth/src/index.ts` (DB-backed sign-in + Drizzle) and `packages/auth/src/tokens.ts` (pure `node:crypto` HMAC) is **architectural**. The middleware can only import `@devlog/auth/tokens`. See ADR-002 + ADR-004 amendment in the PAD.
 
 ### 12.2 L2 — The `erasableSyntaxOnly` Migration (Phase 1)
 
@@ -1155,6 +1155,46 @@ if (!post) return null;  // explicit check
 3. Inline `<head>` script syncs cookie with localStorage before hydration.
 
 See `apps/web/src/app/layout.tsx:60-97`.
+
+### 12.13 L13 — The "Any Password" Bypass (audit C-1, Phase 9)
+
+**What happened:** The audit found `signIn()` accepted ANY password — the seed stored a placeholder string and the comparison path was never wired to a real hash.
+
+**Why it mattered:** Anyone could log in as the author. Classic "dev shortcut ships to prod" failure.
+
+**How to avoid:** Passwords are now scrypt-verified (`packages/auth/src/password.ts`, `timingSafeEqual`, format `scrypt:N:r:p:salt:hash`); the seed computes a real hash of `dev-password-12345` at seed time. Rule: **a credential check that isn't tested against a wrong password is a finding, not a TODO.**
+
+### 12.14 L14 — Signed vs. Random Tokens (audit C-3/C-4, Phase 9)
+
+**What happened:** The subscribe flow generated `crypto.randomUUID()` confirm tokens and had the `sendEmail` call commented out — the confirm/unsubscribe/preferences routes (which verify HMAC signatures) were unreachable dead ends.
+
+**Why it mattered:** The double-opt-in contract in the PRD was silently unimplemented while the UI looked complete.
+
+**How to avoid:** Tokens that cross a trust boundary must be *signed* (`signToken(id)` → `<id>.<hmac>`), not random UUIDs — the verifier dictates the format. And there is no "temporarily commented-out" production send path; tests now pin `sendEmail` being called with the exact template props (`features/subscribe/actions.test.ts`).
+
+### 12.15 L15 — Better Auth Didn't Earn Its Dependency Cost (audit C-2, Phase 9.5)
+
+**What happened:** v1 shipped `better-auth@^1.6` in deps but never actually instantiated it — the app used a homegrown HMAC design. The dependency only contributed ~1.2MB of transitive surface (styled-jsx → @babel/core) and audit advisories.
+
+**Why it mattered:** Unused auth frameworks are pure liability: dependency advisories, bundle weight, and a false CLAUDE.md/AGENTS.md/PAD story about how auth works.
+
+**How to avoid:** When the code and the ADR disagree, fix one of them formally. Better Auth was removed and ADR-004 amended (substitution documented with revisit triggers: OAuth in v2). Rule: **every declared dependency must be imported somewhere.**
+
+### 12.16 L16 — Aspirational Coverage Gates Lie (audit M-8, Phase 9.5)
+
+**What happened:** `vitest.config.ts` declared 80/75/80/80 coverage thresholds from Phase 1, but actual coverage was 44% — and the `pnpm check` script including `test:coverage` had never been run green end-to-end.
+
+**Why it mattered:** A permanently-red gate gets ignored; a "green" claim in the session log was unverifiable.
+
+**How to avoid:** The remediation added ~80 tests (272 total, 65.36% lines) covering the security- and user-critical surface, then set **staged thresholds (64/68/90/64) as a regression gate** with the 80% target tracked as backlog R-30. Rule: **a gate that has never been green is documentation, not enforcement — set thresholds you can hold today, raise them in tracked steps.**
+
+### 12.17 L17 — One Override Chain Killed Six Advisories (audit C-7/C-8/C-9, Phase 9.5)
+
+**What happened:** After the pass-1 dependency bumps, 6 advisories remained — all routed through `react-email` (esbuild, glob, prismjs, @babel/core) and `shadcn → express → qs`.
+
+**Why it mattered:** `pnpm audit --prod` with any remaining high finding blocks the release gate.
+
+**How to avoid:** A short `pnpm.overrides` block (`qs@^6.16`, `prismjs@^1.30`, `glob@^11`, `esbuild@^0.25`, `@babel/core@^7.29.6`) force-resolved the whole tail: **0 vulnerabilities in `pnpm audit --prod`**. Rule: **when advisories cluster in one transitive path, pin the path, don't chase each leaf — and re-run the full build + tests after overriding.**
 
 ---
 

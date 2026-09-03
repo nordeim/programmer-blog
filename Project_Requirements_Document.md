@@ -808,6 +808,19 @@ Following the post-build code review and audit (`CODE_REVIEW_AUDIT_REPORT.md`) a
 
 The remediation plan, audit report, and this revision block are committed alongside the code on `main`.
 
+### v1.2 — 2026-09-03 — Second Remediation Pass (Phase 9.5)
+
+The v1.5 deferrals in v1.1 are now CLOSED (see `Master_Execution_Plan.md` §13, Phase 9.5):
+
+- **Better Auth is now REMOVED** (was "still installed and planned for v1.5"). The §6.1 Better Auth row is retired; the homegrown HMAC + scrypt design in `@devlog/auth` is the permanent v1 auth (ADR-004 amendment — superseded). Revisit triggers: OAuth in v2.
+- **Dependency hygiene clause** — strengthened. `pnpm audit --prod` now reports **0 vulnerabilities** (was "0 critical, 1 high"): better-auth removed + `pnpm.overrides` for the react-email/shadcn transitive tail.
+- **Self-hosted fonts (§6.1, §9.2)** — implemented. `next/font/local` with 5 latin-subset variable woff2 files (132KB); zero Google Fonts requests.
+- **Dynamic OG images (§5.3)** — implemented. `/opengraph-image` (site) + `/posts/[slug]/opengraph-image` (per-post) via `next/og`.
+- **Favicon + manifest (§5.3)** — implemented. `src/app/icon.svg` + `src/app/manifest.ts` (Next.js file conventions).
+- **`@devlog/types` (MEP Phase 2)** — implemented. Zod schemas for post/subscriber/comment/user/env + `slugify` + markdown-aware `calculateReadTime`; the admin actions import from it (single source of truth).
+- **Email masking cleanup** — closed. `maskEmail`/`logError` are used by the subscribe, admin, and auth flows; tests pin the behavior.
+- **Coverage** — 272 tests (up from 169), 65.36% lines (up from 44.43%); staged thresholds gate regressions, 80% target tracked as backlog R-30.
+
 ---
 
-**End of PRD v1.1.** For implementation, see `Master_Execution_Plan.md`. For architecture, see `Project_Architecture_Document.md`. For the audit findings, see `CODE_REVIEW_AUDIT_REPORT.md`. For the remediation tasks, see `REMEDIATION_PLAN.md`.
+**End of PRD v1.2.** For implementation, see `Master_Execution_Plan.md`. For architecture, see `Project_Architecture_Document.md`. For the audit findings, see `CODE_REVIEW_AUDIT_REPORT.md`. For the remediation tasks, see `REMEDIATION_PLAN.md`.

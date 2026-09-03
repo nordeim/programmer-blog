@@ -15,8 +15,10 @@
  */
 import 'server-only';
 import { db, eq, schema } from '@devlog/db';
+import { cookies } from 'next/headers';
 
 // Import + re-export the pure-crypto helpers from tokens.ts (edge-safe).
+import { hashPassword, verifyPassword } from './password';
 import {
   SESSION_COOKIE,
   SESSION_TTL,
@@ -25,7 +27,6 @@ import {
   verifySessionToken,
   verifyToken,
 } from './tokens';
-import { hashPassword, verifyPassword } from './password';
 
 export {
   SESSION_COOKIE,
@@ -143,15 +144,18 @@ export async function getSession(cookieValue: string | undefined | null): Promis
 }
 
 /**
- * Convenience: get the session user from a Next.js Request (reads
- * the cookie jar). Server-only.
+ * Reads the session cookie via Next's request-scoped cookie jar and
+ * returns the user, or `null` when not signed in or session is invalid.
+ *
+ * R-25 (audit remediation): previously this read a
+ * `globalThis.__devlog_test_cookies` backdoor — impossible in production
+ * (Next's cookie jar is request-scoped) and a smell. Now it uses
+ * `next/headers`' `cookies()` (server-only, request-scoped) which is the
+ * real production path.
  */
 export async function getSessionFromCookies(): Promise<SessionUser | null> {
-  const cookieHeader =
-    (globalThis as { __devlog_test_cookies?: Record<string, string> }).__devlog_test_cookies?.[
-      SESSION_COOKIE
-    ];
-  return getSession(cookieHeader);
+  const jar = await cookies();
+  return getSession(jar.get(SESSION_COOKIE)?.value);
 }
 
 /**

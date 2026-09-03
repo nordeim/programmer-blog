@@ -1,10 +1,10 @@
 /**
  * apps/web/src/app/layout.tsx — Root layout.
- * Phase 1 minimal version: sets up the theme cookie + SSR-safe theme
- * attribute, exports metadata, renders a placeholder body. Phase 3 will
- * add self-hosted Fraunces / JetBrains Mono / Space Grotesk via
- * next/font/local with files in public/fonts/, plus the <ThemeProvider>,
- * <SkipLink>, <Nav>, <Footer>, and <Toaster>.
+ *
+ * Self-hosted fonts (R-10, audit remediation for H-3): Fraunces /
+ * JetBrains Mono / Space Grotesk are loaded via next/font/local from
+ * ./fonts/*.woff2 (latin subsets, variable axes). Fonts are served from
+ * /_next/static/media/ — zero runtime Google Fonts requests, zero CLS.
  *
  * The theme cookie pattern (PAD §3.3 Pattern 1) prevents hydration
  * mismatch — the server reads the cookie and emits data-theme="...",
@@ -12,11 +12,58 @@
  * for client-side theme changes.
  */
 import type { Metadata, Viewport } from 'next';
+import localFont from 'next/font/local';
 import { cookies } from 'next/headers';
 
 import './globals.css';
 import { THEME_COOKIE, VALID_THEMES, type Theme } from '@/domain/theme';
 import { env } from '@/lib/env';
+
+// Self-hosted variable fonts (latin subset). woff2 files live in ./fonts/.
+const fraunces = localFont({
+  src: [
+    {
+      path: './fonts/fraunces-latin-var.woff2',
+      weight: '100 900',
+      style: 'normal',
+    },
+    {
+      path: './fonts/fraunces-latin-italic-400.woff2',
+      weight: '400',
+      style: 'italic',
+    },
+  ],
+  variable: '--font-fraunces',
+  display: 'swap',
+  preload: true,
+});
+
+const jetbrainsMono = localFont({
+  src: [
+    {
+      path: './fonts/jetbrains-mono-latin-var.woff2',
+      weight: '400 800',
+      style: 'normal',
+    },
+    {
+      path: './fonts/jetbrains-mono-latin-italic-400.woff2',
+      weight: '400',
+      style: 'italic',
+    },
+  ],
+  variable: '--font-jetbrains-mono',
+  display: 'swap',
+  preload: true,
+});
+
+const spaceGrotesk = localFont({
+  src: './fonts/space-grotesk-latin-var.woff2',
+  weight: '300 700',
+  style: 'normal',
+  variable: '--font-space-grotesk',
+  display: 'swap',
+  preload: true,
+});
 
 const siteUrl = env.NEXT_PUBLIC_SITE_URL;
 
@@ -82,7 +129,12 @@ export default async function RootLayout({
   )}+'='+t+';path=/;max-age=31536000;samesite=lax';var e=document.documentElement;if(e.getAttribute('data-theme')!==t){e.setAttribute('data-theme',t);}}}catch(e){}})();`;
 
   return (
-    <html lang="en" data-theme={initialTheme} suppressHydrationWarning>
+    <html
+      lang="en"
+      data-theme={initialTheme}
+      className={`${fraunces.variable} ${jetbrainsMono.variable} ${spaceGrotesk.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeSyncScript }} />
       </head>

@@ -18,6 +18,7 @@ Every change is tagged with its source: `[RES]` = validated by web research,
 `[SAN]` = sanitization pass, `[AUTH]` = auth alignment.
 
 - `[SYN]` Initial PAD generated from PRD v1.0 + landing_page_mockup.html + skills/ folder (skills/nextjs16-react19-tailwind4-better-auth-monorepo, skills/nextjs16-react19-tailwindv4-trpcv11-drizzle-better-auth, skills/project-architecture-document-md).
+- `[SR]` **PAD v1.1 (2026-09-03, audit remediation R-27):** ADR-004 amended — Better Auth substituted by the homegrown HMAC-SHA256 + scrypt design (`packages/auth`); tech stack table updated accordingly. Self-hosted fonts (R-10), dynamic OG images (R-14), favicon + manifest (R-15), and the populated `@devlog/types` package (R-18) are as-built and documented in their file headers.
 
 ---
 
@@ -70,7 +71,7 @@ Definitive. Every choice is locked. Versions are pinned to the floor of what we 
 | Component library | shadcn/ui | CLI-managed (latest) | Copy-paste, fully owned, styled with Tailwind tokens. |
 | ORM | drizzle-orm | ≥0.40.0 | Type-safe SQL builder, native better-sqlite3 binding. |
 | Database | better-sqlite3 | ≥12.0.0 | Synchronous, fast, file-based. Perfect for single-server blog. |
-| Auth | better-auth | ≥1.6.0 | Email/password, RBAC plugin, `proxy.ts` integration, session cookies. |
+| Auth | @devlog/auth (homegrown HMAC) | — (ADR-004 amended) | HMAC-SHA256 session tokens + scrypt password hashes (node:crypto); edge-safe tokens.ts. Better Auth was removed per ADR-004 amendment. |
 | Email | resend | ≥4.0.0 | React Email integration, generous free tier. |
 | Email templates | react-email | ≥3.0.0 | Composable templates, HTML + plain text rendering. |
 | Form validation | zod | ≥3.25.0 (or 4.x when stable) | Client + server validation, type inference. |
@@ -138,10 +139,38 @@ Definitive. Every choice is locked. Versions are pinned to the floor of what we 
   - **Turso (libSQL)** — Excellent, but adds a client/server architecture that complicates local dev. better-sqlite3 is simpler.
   - **Prisma** — Excellent DX, but heavier than Drizzle, generates code (one more thing to keep in sync), and is slower. Drizzle's no-codegen story is cleaner.
 
-#### ADR-004: Better Auth (over Auth.js / NextAuth v5)
+#### ADR-004: Better Auth (over Auth.js / NextAuth v5) — AMENDED 2026-08-26
+
+> **ADR-004 Amendment (audit remediation R-2, applied 2026-09-03).** Status: **Superseded —
+> substituted by a homegrown HMAC-SHA256 + scrypt design.**
+>
+> **What changed:** Better Auth (and its ~1.2MB dependency tree, including
+> styled-jsx → @babel/core) was removed from `packages/auth/package.json` and
+> `apps/web/package.json`. The v1 auth needs are now served entirely by
+> `packages/auth`:
+>
+> - `tokens.ts` — HMAC-SHA256 session + transaction tokens (edge-safe,
+>   `node:crypto`, `timingSafeEqual`), keyed by `BETTER_AUTH_SECRET`
+>   (env name kept for compat). Production boot throws when the secret is
+>   missing/short (R-5).
+> - `password.ts` — scrypt password hashing (N=2^15, r=8, p=1, node:crypto,
+>   `timingSafeEqual`, format `scrypt:N:r:p:salt:hash`) (R-1).
+> - `index.ts` — DB-backed `signIn`/`getSession`/`requireAuthor`
+>   (`role === 'author'` gate, R-6) + `getSessionFromCookies` via
+>   `next/headers` (R-25).
+>
+> **Why:** v1 needs one author login + signed subscriber tokens — not a
+> framework. The homegrown design is edge-safe, dependency-free, fully
+> tested (forged-token / tampered-hmac / wrong-secret coverage), and removed
+> several transitive audit advisories. The middleware verifies session HMACs
+> on the edge without pulling better-sqlite3/drizzle.
+>
+> **Revisit when:** v2 adds OAuth (GitHub) for the author, or multi-user
+> accounts with password reset flows — at that point a maintained auth
+> library earns its dependency cost again.
 
 - **Context:** Auth needs for v1 are: email/password for the author (one user), email-only "magic-link-style" subscribe confirmation for readers (no password), and an `author` role for admin route protection. v2 may add OAuth (GitHub) for the author.
-- **Decision:** Use **Better Auth** with the email/password plugin and the RBAC plugin.
+- **Decision (superseded — see amendment above):** Use **Better Auth** with the email/password plugin and the RBAC plugin.
 - **Rationale:**
   - Better Auth's API is a single `auth.ts` file exporting `auth`, `signIn`, `signOut`, `getSession`. Less ceremony than Auth.js's `auth.config.ts` + `app/api/auth/[...nextauth]/route.ts` + `middleware.ts` trio.
   - Better Auth's `proxy.ts` integration is documented (Next.js 16's new edge-handler contract). Auth.js's middleware integration is being deprecated.

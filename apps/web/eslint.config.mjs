@@ -14,7 +14,7 @@ import nextPlugin from 'eslint-config-next';
 // eslint-config-next v16 exports a flat-config array directly.
 const nextConfigs = /** @type {unknown} */ (nextPlugin);
 
-export default [
+const config = [
   {
     ignores: [
       '.next/',
@@ -96,3 +96,5 @@ export default [
     },
   },
 ];
+
+export default config;

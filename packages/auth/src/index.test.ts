@@ -58,6 +58,24 @@ describe('session tokens', () => {
     expect(verifySessionToken('userid-only')).toBeNull();
   });
 
+  // R-2 (audit remediation): a token signed with a DIFFERENT secret must be
+  // rejected — this pins the HMAC substitution design (no Better Auth; the
+  // secret is the only trust root).
+  it('verifySessionToken rejects a forged token signed with a different secret', () => {
+    const forged = createSessionToken('user-123');
+    // Rotate the secret, then verify the token minted under the old secret.
+    const original = process.env.BETTER_AUTH_SECRET;
+    process.env.BETTER_AUTH_SECRET = 'b'.repeat(64);
+    try {
+      expect(verifySessionToken(forged)).toBeNull();
+      // A token minted under the CURRENT secret is accepted.
+      const fresh = createSessionToken('user-123');
+      expect(verifySessionToken(fresh)).toBe('user-123');
+    } finally {
+      process.env.BETTER_AUTH_SECRET = original;
+    }
+  });
+
   it('verifySessionToken returns null when the hmac is not hex', () => {
     expect(verifySessionToken('user-123.nothex')).toBeNull();
   });

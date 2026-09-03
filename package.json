@@ -41,7 +41,12 @@
   "pnpm": {
     "overrides": {
       "react-email>next": "^16.0.0",
-      "vitest": "^3.2.6"
+      "vitest": "^3.2.6",
+      "qs": "^6.16.0",
+      "prismjs": "^1.30.0",
+      "glob": "^11.0.3",
+      "esbuild": "^0.25.0",
+      "@babel/core": "^7.29.6"
     }
   }
 }

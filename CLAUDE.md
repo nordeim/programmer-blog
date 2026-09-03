@@ -2,12 +2,12 @@
 IMPORTANT: File is read fresh for every conversation. Be brief and practical.
 project_type: nextjs-monorepo
 framework: next.js-16-app-router
-last_updated: 2026-08-26
+last_updated: 2026-09-03
 ---
 
 # `/dev/log` — Programmer Blog
 
-Production-grade programmer blog (package name: `devlog`) — Next.js 16 App Router, React 19, Tailwind CSS v4, Drizzle ORM + better-sqlite3, Better Auth, Resend, Vitest. Monorepo managed by pnpm + Turborepo. The landing page is a pixel-for-pixel port of `landing_page_mockup.html` (the source of truth — **DO NOT MODIFY**).
+Production-grade programmer blog (package name: `devlog`) — Next.js 16 App Router, React 19, Tailwind CSS v4, Drizzle ORM + better-sqlite3, homegrown HMAC auth (`@devlog/auth`, see ADR-004 amendment), Resend, Vitest. Monorepo managed by pnpm + Turborepo. The landing page is a pixel-for-pixel port of `landing_page_mockup.html` (the source of truth — **DO NOT MODIFY**).
 
 **Maintainer:** Alex Rivera. Trunk-based on `main`. TDD (Red→Green→Refactor) is mandatory for every code change.
 
@@ -94,12 +94,15 @@ Follow for all implementation tasks:
 - **Type inference** via `typeof posts.$inferSelect` — never hand-write row types.
 - **Schema lives in `packages/db/src/schema.ts`.** App code imports from `@devlog/db`, never from `drizzle-orm/sqlite-core` directly.
 
-### Better Auth
+### Auth (homegrown — Better Auth removed, ADR-004 amendment)
 
-- **Instance lives in `packages/auth/src/index.ts`.** App imports `auth` from `@devlog/auth`.
-- **Edge-safe tokens in `packages/auth/src/tokens.ts`.** Pure Web Crypto (HMAC-SHA256). No Drizzle, no better-sqlite3. Importable from `middleware.ts`.
+- **`better-auth` is NOT a dependency anymore** (audit remediation R-2, 2026-09-03). The v1 auth surface is served entirely by `@devlog/auth`:
+  - `src/tokens.ts` — edge-safe HMAC-SHA256 tokens (`node:crypto`, `timingSafeEqual`), keyed by `BETTER_AUTH_SECRET` (env name kept for compat). Session format `<userId>.<hmac>`; transaction tokens for confirm/unsubscribe/preferences.
+  - `src/password.ts` — scrypt hashing (N=2^15, r=8, p=1, format `scrypt:N:r:p:salt:hash`, `timingSafeEqual`).
+  - `src/index.ts` — DB-backed `signIn` / `getSession` / `requireAuthor` (role gate) / `getSessionFromCookies` (uses `next/headers`; `next` is a peerDependency).
 - **Session cookie name:** `devlog_session` (exported as `SESSION_COOKIE` from `@devlog/auth/tokens`).
-- **Role enum** is `'author' | 'subscriber'` (stored on `users.role`). `author` can access `/admin/*`; `subscriber` cannot.
+- **Role enum** is `'author' | 'subscriber'` (stored on `users.role`, schema also in `@devlog/types`). `author` can access `/admin/*`; `subscriber` cannot. The admin layout enforces `requireAuthor()`; the edge middleware only verifies the session HMAC.
+- **Production secret policy:** `getSecret()` throws when `BETTER_AUTH_SECRET` is missing/<32 chars in production (R-5).
 
 ### Resend + React Email
 

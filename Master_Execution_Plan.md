@@ -793,4 +793,68 @@ All Phase 9 changes are bundled into a single commit on `main`:
 
 ---
 
-**End of MEP v1.1.** For requirements, see `Project_Requirements_Document.md`. For architecture, see `Project_Architecture_Document.md`. For audit findings, see `CODE_REVIEW_AUDIT_REPORT.md`. For remediation tasks, see `REMEDIATION_PLAN.md`.
+## 13. Phase 9.5 — Audit Remediation, Second Pass (2026-09-03)
+
+### Goal
+
+Complete the REMAINING remediation-plan tasks that the first pass deferred to
+"v1.5": R-2 (better-auth removal), R-10 (self-hosted fonts), R-14 (dynamic OG
+images), R-15 (favicon + manifest), R-18 (`@devlog/types`), R-21 (coverage
+gate reconciliation), R-24 (markdown-aware reading time), and R-25 (cookie
+backdoor removal) — then align all documents (R-27/R-28/R-29) and re-run every
+validation gate.
+
+### Files created / updated in Phase 9.5
+
+| # | Path | Purpose |
+|---|------|---------|
+| 1 | `packages/types/src/post.ts` | `postInputSchema`, `postStatusSchema`, `slugify`, markdown-aware `calculateReadTime`, `stripMarkdown`. R-18 + R-24. |
+| 2 | `packages/types/src/subscriber.ts` | `subscriberStatusSchema`, `subscriberPreferencesSchema`, `subscribeInputSchema`. R-18. |
+| 3 | `packages/types/src/comment.ts` | `commentStatusSchema`, `createCommentInputSchema`. R-18. |
+| 4 | `packages/types/src/user.ts` | `userRoleSchema`, `sessionUserSchema`, `USER_ROLES`. R-18. |
+| 5 | `packages/types/src/env.ts` | `envSchema` shape + pure `parseEnv`. R-18 (MEP #21 as-built: the boot-time loader + secret policy stay in `apps/web/src/lib/env.ts`). |
+| 6 | `packages/types/src/index.ts` (UPDATE) | Re-exports all schemas + helpers. R-18 (MEP #22). |
+| 7 | `packages/types/src/index.test.ts` | 21 tests (MEP #23 as-built: slugify + read-time + all schemas). R-18. |
+| 8 | `packages/auth/src/index.ts` (UPDATE) | `getSessionFromCookies` now uses `next/headers` `cookies()`; `globalThis.__devlog_test_cookies` backdoor removed. R-25. |
+| 9 | `packages/auth/package.json` (UPDATE) | `better-auth` dependency removed; `next` declared as peerDependency. R-2. |
+| 10 | `packages/auth/src/tokens.ts` (UPDATE) | JSDoc documents the formal HMAC substitution (ADR-004 amendment). R-2. |
+| 11 | `packages/auth/src/index.test.ts` (UPDATE) | Forged-token (wrong-secret) regression test. R-2 RED 2.1. |
+| 12 | `apps/web/package.json` (UPDATE) | `better-auth` dependency removed. R-2. |
+| 13 | `package.json` (UPDATE) | `pnpm.overrides` extended (`qs`, `prismjs`, `glob`, `esbuild`, `@babel/core`) — `pnpm audit --prod` now reports **0 vulnerabilities** (was 1 high + 4 moderate + 1 low after pass 1). R-7 deep-clean. |
+| 14 | `apps/web/src/app/fonts/*.woff2` (NEW, 5 files) | Self-hosted latin-subset variable fonts (Fraunces, JetBrains Mono, Space Grotesk) — 132KB total. R-10. |
+| 15 | `apps/web/src/app/layout.tsx` (UPDATE) | Wires the three fonts via `next/font/local` with CSS variables. R-10. |
+| 16 | `apps/web/src/app/globals.css` (UPDATE) | `--font-*` tokens now reference the next/font variables. R-10. |
+| 17 | `apps/web/src/components/og-image.tsx` | Centralized 1200×630 OG renderer (brand tokens, satori-safe inline styles). R-14. |
+| 18 | `apps/web/src/components/og-image.test.tsx` | 3 tests pinning size + rendered brand strings. R-14. |
+| 19 | `apps/web/src/app/opengraph-image.tsx` | Site OG image route (static). R-14. |
+| 20 | `apps/web/src/app/(public)/posts/[slug]/opengraph-image.tsx` | Per-post OG image route (post title + reading time). R-14. |
+| 21 | `apps/web/src/app/icon.svg` | Branded `/dev/log` favicon (Next.js file convention). R-15. |
+| 22 | `apps/web/src/app/manifest.ts` | PWA web manifest (Next.js file convention). R-15. |
+| 23 | `apps/web/src/app/layout.test.tsx`, `fonts.test.ts`, `icon.test.ts` | Font wiring + font-file + favicon/manifest/robots guard tests (8 tests). R-10/R-15. |
+| 24 | `apps/web/src/features/admin/actions.ts` (UPDATE) | Imports `postInputSchema`/`slugify`/`calculateReadTime` from `@devlog/types` (single source of truth). R-18 + R-24. |
+| 25 | `apps/web/src/vitest.config.ts` (UPDATE) | Coverage measurement scoped to the jsdom-testable surface (documented exclusions) + staged thresholds (64/68/90/64) as a regression gate. R-21. |
+| 26 | 18 new test files (~80 tests) | subscribe actions (R-3 mandate), auth actions + login form + sign-out button, robots/github-stats/sitemap routes, lib github/log/snippets, error/not-found pages, nav/footer/theme-toggle/github-pill/progress-bar, hover/skip links, stores, schema. R-21. |
+| 27 | `apps/web/eslint.config.mjs`, `postcss.config.mjs` (UPDATE) | Anonymous default exports named — lint now 0 errors **0 warnings**. R-20 completion. |
+| 28 | `Project_Architecture_Document.md` (UPDATE) | ADR-004 amendment + tech stack row + revision v1.1. R-27. |
+| 29 | `Master_Execution_Plan.md` (UPDATE) | This Phase 9.5 section. R-28. |
+| 30 | `CLAUDE.md`, `AGENTS.md`, `README.md`, `programmer-blog_SKILL.md` (UPDATE) | Agent docs aligned with the as-built remediated codebase + Lessons Learned. R-29. |
+| 31 | `REMEDIATION_PLAN.md` (UPDATE) | Status column for every task; new R-30 backlog item (coverage → 80/75/80/80). |
+
+### Phase 9.5 Acceptance Gate
+
+- [x] `pnpm check-types` green (5/5 packages).
+- [x] `pnpm lint` green — **0 errors, 0 warnings** (first time).
+- [x] `pnpm test` green — 272 tests (229 web + 16 auth + 21 types + 3 db + 3 email), up from 169.
+- [x] `pnpm test:coverage` green — 65.36% lines (up from 44.43% at audit time) against staged thresholds; 80/75/80/80 tracked as R-30.
+- [x] `pnpm audit --prod` — **0 vulnerabilities** (0 critical, 0 high, 0 moderate, 0 low). Down from 50 (3 critical, 18 high) at audit time.
+- [x] `pnpm build` succeeds — 25 routes incl. `/opengraph-image`, `/posts/[slug]/opengraph-image`, `/icon.svg`, `/manifest.webmanifest`.
+- [x] All four agent-facing docs (CLAUDE/AGENTS/README/SKILL) aligned.
+
+### Phase 9.5 Commit
+
+Single commit on `main`:
+- `fix(audit): complete deferred remediation (R-2, R-10, R-14, R-15, R-18, R-21, R-24, R-25) + docs alignment`
+
+---
+
+**End of MEP v1.2.** For requirements, see `Project_Requirements_Document.md`. For architecture, see `Project_Architecture_Document.md`. For audit findings, see `CODE_REVIEW_AUDIT_REPORT.md`. For remediation tasks, see `REMEDIATION_PLAN.md`.

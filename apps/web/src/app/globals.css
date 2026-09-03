@@ -34,9 +34,12 @@
   --color-code-fg: var(--code-fg);
   --color-glow: var(--glow);
 
-  --font-display: 'Fraunces', Georgia, serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-  --font-body: 'Space Grotesk', system-ui, sans-serif;
+  /* R-10: self-hosted variable fonts via next/font/local. The --font-fraunces /
+     --font-jetbrains-mono / --font-space-grotesk variables are set on <html>
+     by layout.tsx (values = next/font's generated family names). */
+  --font-display: var(--font-fraunces), 'Fraunces', Georgia, serif;
+  --font-mono: var(--font-jetbrains-mono), 'JetBrains Mono', 'Fira Code', monospace;
+  --font-body: var(--font-space-grotesk), 'Space Grotesk', system-ui, sans-serif;
 
   --radius: 4px;
   --radius-sm: 2px;

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- /dev/log logotype favicon (R-15). Dark theme token bg #0c0b09,
+       amber accent #f59e0b, cyan accent-2 #06b6d4, fg #f0ead6. -->
+  <rect width="64" height="64" rx="8" fill="#0c0b09"/>
+  <rect x="4" y="4" width="56" height="56" rx="6" fill="none" stroke="#f59e0b" stroke-width="2" opacity="0.9"/>
+  <text x="32" y="38" font-family="JetBrains Mono, DejaVu Sans Mono, monospace" font-size="18" font-weight="700" text-anchor="middle" fill="#f0ead6">/d</text>
+  <text x="32" y="53" font-family="JetBrains Mono, DejaVu Sans Mono, monospace" font-size="11" font-weight="400" text-anchor="middle" fill="#06b6d4">_log</text>
+  <rect x="47" y="44" width="5" height="9" fill="#f59e0b"/>
+</svg>
