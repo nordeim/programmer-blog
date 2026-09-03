@@ -94,7 +94,7 @@ if (isMain) {
   const appRoot = resolveAppRoot(process.argv);
   const result = copyStandaloneAssets(appRoot);
   for (const w of result.warnings) console.warn(w);
-  console.log(
+  console.warn(
     `[postbuild] standalone assets: static=${result.copiedStatic} public=${result.copiedPublic} (root: ${appRoot})`,
   );
 }
