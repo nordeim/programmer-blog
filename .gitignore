@@ -62,3 +62,6 @@ skills/
 
 # The mockup is the source of truth — do not modify
 # (kept intentionally tracked, not ignored)
+
+# R-35: build-manifest cruft from dependency bumps (skills/ is read-only and keeps its own .bak)
+*.bak
