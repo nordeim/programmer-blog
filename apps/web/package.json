@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
+    "postbuild": "tsx src/scripts/copy-standalone-assets.ts",
     "start": "node .next/standalone/apps/web/server.js",
     "start:next": "next start",
     "check-types": "tsc --noEmit",
