@@ -6,10 +6,10 @@ description: >
   Better Auth + Resend + Vitest monorepo. Distilled from the completed Phases 1–7 of the
   Master Execution Plan (MEP). Use this when extending, debugging, onboarding to, or
   replicating the /dev/log architecture.
-version: 1.0.0
+version: 1.0.1
 project: devlog
-last_updated: 2026-08-26
-project_state: 154+ tests green, 5 packages, Phases 1–7 complete
+last_updated: 2026-09-03
+project_state: 272 tests green, 5 packages, Next 16.3.4 / drizzle-kit 0.31 / proxy.ts / Web Crypto, Phases 1–7 + remediation A-C complete
 tags:
   - documentation
   - knowledge-distillation
@@ -24,7 +24,7 @@ tags:
 
 # `/dev/log` — Programmer Blog Engineering Skill (SKILL.md)
 
-> **How to use this document:** This is the deep-dive codebase reference for `/dev/log`. Read §1–§3 before extending any feature. Read §9 + §10 when debugging. Read §11 before pushing. Read §19 + §20 when authoring or modifying design tokens / TypeScript types. All claims are verified against the actual codebase as of commit `cc5c4bd` (Phase 7 validation pass).
+> **How to use this document:** This is the deep-dive codebase reference for `/dev/log`. Read §1–§3 before extending any feature. Read §9 + §10 when debugging. Read §11 before pushing. Read §19 + §20 when authoring or modifying design tokens / TypeScript types. All claims are verified against the actual codebase as of **2026-09-03** (Next 16.3.4 / drizzle-kit 0.31 / `proxy.ts` / Web Crypto `crypto.subtle` / `pnpm db:setup`, 272 tests, `34/34` pages).
 
 ---
 
@@ -103,20 +103,21 @@ The repo explicitly rejects: Bootstrap grids, Material Design elevation, default
 | Package manager | pnpm | `9.15.4` | Declared in `package.json#packageManager`. Never `npm` or `yarn`. |
 | Runtime | Node.js | `≥20.0.0` | Declared in `package.json#engines`. |
 | Monorepo | Turborepo | `^2.4.0` | `turbo.json` declares `globalEnv` for env-aware caching. |
-| Web framework | Next.js (App Router) | `^16.0` | `output: 'standalone'`; `middleware.ts` (not `proxy.ts`). |
+| Web framework | Next.js (App Router) | `^16.3.4` | `output: 'standalone'` → `apps/web/.next/standalone/apps/web/server.js`; `proxy.ts` (replaces `middleware.ts` since 16.3.4, build errors if both exist). |
 | UI runtime | React | `^19.0` | No `forwardRef` — `ref` is a regular prop. |
 | Language | TypeScript | `^5.9.0` | `strict`, `noUncheckedIndexedAccess`, `erasableSyntaxOnly`. |
 | Styling | Tailwind CSS | v4 (CSS-first `@theme`) | No `tailwind.config.ts`. Tokens in `globals.css` + `packages/config/tailwind/base.css`. |
-| ORM | drizzle-orm + drizzle-kit | `^0.40` | SQLite-only. Migrations via `drizzle-kit generate`. |
-| Database | better-sqlite3 | `^12` | Single file at `apps/web/devlog.db`. No Postgres, no Redis. |
-| Auth | @devlog/auth (homegrown) | — | HMAC-SHA256 tokens (`tokens.ts`, edge-safe) + scrypt passwords (`password.ts`). Better Auth removed per ADR-004 amendment (R-2). |
-| Email | Resend + React Email | `^4` / `^3` | Degrades gracefully without `RESEND_API_KEY` in dev. |
-| Validation | Zod | `^3.25` | At every boundary: env, Server Action inputs, API bodies. |
-| Client state | Zustand | `^5` | Theme + UI stores only. Never for server state. |
-| Linter | ESLint | 9 (flat config) | `no-restricted-syntax` blocks `as any`/`enum`/`namespace`. |
-| Test runner | Vitest + jsdom | `^2.1` / `^25` | Co-located tests: `Foo.tsx` ↔ `Foo.test.tsx`. |
+| ORM | drizzle-orm + drizzle-kit | `^0.45.2` + `^0.31.0` (`0.31.10` resolved) | SQLite-only; `drizzle-kit generate --config ./drizzle.config.ts` in `@devlog/db`. Node 24 `fetch` clash fixed in 0.31. |
+| Database | better-sqlite3 | `^12.11.1` (`@types ^7.6.13`) | Single file at `apps/web/devlog.db`. No Postgres, no Redis. |
+| Auth | @devlog/auth (homegrown) | — | HMAC-SHA256 via **Web Crypto `crypto.subtle`** (`async`, `timingSafeEqualHex`, no `node:crypto`/`Buffer`) + scrypt. Better Auth removed R-2. All token helpers `async` since 2026-09-03. |
+| Email | Resend + React Email | `^4.8.0` / `^3` | Degrades gracefully without `RESEND_API_KEY` in dev. |
+| Validation | Zod | `^3.25.76` | At every boundary: env, Server Action inputs, API bodies. |
+| Client state | Zustand | `^5.0.15` | Theme + UI stores only. Never for server state. |
+| Linter | ESLint | `9.39.5` flat | `no-restricted-syntax` blocks `as any`/`enum`/`namespace`. `eslint-config-next 16.3.4`. |
+| Test runner | Vitest + jsdom | `^3.2.7` / `^25.0.1` + `@vitest/coverage-v8 ^2.1.9` | Co-located tests: `Foo.tsx` ↔ `Foo.test.tsx`. |
 | Content | MDX | (bundled with Next.js) | `pageExtensions: ['ts','tsx','js','jsx','md','mdx']`. |
-| Formatter | Prettier | `^3.3.0` | With `prettier-plugin-tailwindcss@^0.6.0`. |
+| Formatter | Prettier | `^3.9.6` + `prettier-plugin-tailwindcss ^0.6.14` | `pnpm format` write, `format:check` CI gate. |
+| Styling | Tailwind CSS | `^4.3.3` + `@tailwindcss/postcss ^4.3.3` | CSS-first `@theme`, no `tailwind.config.ts`. |
 | Pre-commit | Husky + lint-staged | `^9.1.0` / `^15.2.0` | Runs Prettier + ESLint on staged files. |
 | Commit lint | @commitlint/cli + config-conventional | `^19.5.0` | Enforces Conventional Commits. Subject ≤72 chars. |
 
@@ -149,10 +150,10 @@ Defined in [`apps/web/src/lib/env.ts`](./apps/web/src/lib/env.ts) via Zod. **Thr
 
 **Access pattern:** Never read `process.env.FOO` directly in feature/component code. Always go through `apps/web/src/lib/env.ts`. Public vars (`NEXT_PUBLIC_*`) are inlined by Next.js and safe to read in client components.
 
-### 2.3 Test Counts (Phase 7 baseline)
+### 2.3 Test Counts (2026-09-03 baseline)
 
-- **154+ tests** across 5 packages (`@devlog/web`, `@devlog/db`, `@devlog/auth`, `@devlog/email`, `@devlog/types`).
-- All green. Updated on every commit via `turbo run test`.
+- **272 tests** across 5 packages (`229 web` + `16 auth` + `21 types` + `3 db` + `3 email`); `34/34` pages after `db:seed`.
+- All green. Updated on every commit via `turbo run test` (`pnpm check` = `check-types && lint && test:coverage && audit --prod && build`).
 
 ---
 
@@ -175,12 +176,17 @@ cp .env.example .env.local
 #   SIGNED_TOKEN_SECRET:  openssl rand -hex 32
 #   RESEND_API_KEY (optional in dev)
 
-pnpm db:generate   # Drizzle Kit diffs schema.ts → writes packages/db/migrations/*.sql
+pnpm db:generate   # `drizzle-kit generate --config ./drizzle.config.ts` in @devlog/db (0.31)
 pnpm db:migrate     # Applies migrations → creates apps/web/devlog.db
 pnpm db:seed        # Seeds mockup data (3 posts, 6 archive, 5 snippets, 1 author)
+# One-shot from scratch:
+pnpm db:setup      # = generate && migrate && seed (135K db, 34/34 pages)
 
-pnpm dev           # http://localhost:3000
-pnpm check         # Full quality gate: check-types && lint && test && build
+pnpm dev           # http://localhost:3000 (Turbopack)
+# Production (standalone):
+pnpm build         # → apps/web/.next/standalone/apps/web/server.js
+pnpm start         # node apps/web/.next/standalone/apps/web/server.js (not next start)
+pnpm check         # Full quality gate: check-types && lint && test:coverage && audit --prod && build
 ```
 
 ### 3.2 Critical Configuration Files
@@ -188,12 +194,13 @@ pnpm check         # Full quality gate: check-types && lint && test && build
 | File | Purpose | Locked? |
 |---|---|---|
 | [`tsconfig.base.json`](./tsconfig.base.json) | Root TS config. `strict`, `noUncheckedIndexedAccess`, `erasableSyntaxOnly`, path aliases. | Yes — do not relax. |
-| [`apps/web/next.config.ts`](./apps/web/next.config.ts) | Next.js 16 config: `output: 'standalone'`, `transpilePackages`, MDX page extensions, security headers. | Yes — headers must not regress. |
+| [`apps/web/next.config.ts`](./apps/web/next.config.ts) | Next.js 16.3.4 `output: 'standalone'` → `.next/standalone/apps/web/server.js` (`node …/server.js`, not `next start`), `transpilePackages`, MDX, security headers. |
 | [`apps/web/src/app/globals.css`](./apps/web/src/app/globals.css) | The full `/dev/log` design system. 1:1 port of mockup lines 14-578. | Yes — mockup is the source of truth. |
 | [`packages/config/tailwind/base.css`](./packages/config/tailwind/base.css) | Raw color tokens per `[data-theme="dark\|light\|cyber"]`. | Yes — design budget closed. |
 | [`turbo.json`](./turbo.json) | Turborepo task graph + `globalEnv` for env-aware caching. | Yes — adding a script requires updating `tasks`. |
-| [`pnpm-workspace.yaml`](./pnpm-workspace.yaml) | Declares `apps/*` + `packages/*`. | — |
+| [`pnpm-workspace.yaml`](./pnpm-workspace.yaml) | Declares `apps/*` + `packages/*`; `overrides` (`react-email>next`, `@babel/core 7.29.6` etc.) — modern home for `pnpm.overrides` (warning `pnpm field no longer read` is P1 accepted on 9.15.4). |
 | [`commitlint.config.mjs`](./commitlint.config.mjs) | Conventional Commits enforcement. | — |
+| [`apps/web/src/proxy.ts`](./apps/web/src/proxy.ts) | Edge `proxy` (replaces `middleware.ts` since 16.3.4, `export async function proxy`). Build errors if both exist. | Yes — `matcher ['/admin/:path*']` |
 | [`apps/web/vitest.config.ts`](./apps/web/vitest.config.ts) | Vitest + jsdom config. | — |
 
 ### 3.3 The `erasableSyntaxOnly` Gotcha
@@ -361,7 +368,7 @@ A layer may only import from layers *below* it (higher-numbered) or from its own
 
 | Layer | Path | May NOT import |
 |---|---|---|
-| 0. proxy | `apps/web/src/middleware.ts` | DB, Drizzle, `@devlog/auth` root. Only `@devlog/auth/tokens` (pure crypto). |
+| 0. proxy | `apps/web/src/proxy.ts` (replaces `middleware.ts` since 16.3.4, `export async function proxy`) | DB, Drizzle, `@devlog/auth` root. Only `@devlog/auth/tokens` (Web Crypto `crypto.subtle`, `async`) |
 | 1. app | `apps/web/src/app/**` | `drizzle-orm`, `better-sqlite3`, `@devlog/db` directly — call features/lib instead. |
 | 2. features | `apps/web/src/features/**` | Other features' internals; `drizzle-orm` directly (use `@devlog/db/queries`). |
 | 3. domain | `apps/web/src/domain/**` | React, Drizzle, better-sqlite3, resend — pure TS only. |
@@ -415,7 +422,7 @@ This centralizes query logic, makes testing easier (mock `@devlog/db` not Drizzl
 
 | Context | Use | Why |
 |---|---|---|
-| `middleware.ts` (Edge) | `verifySessionToken(cookie)` from `@devlog/auth/tokens` | Edge Runtime can't import `@devlog/auth` (which pulls better-sqlite3). |
+| `proxy.ts` (Edge, `proxy`) | `await verifySessionToken(cookie)` from `@devlog/auth/tokens` (Web Crypto `async`, no `Buffer`) | Edge Runtime can't import `@devlog/auth` (which pulls better-sqlite3). |
 | Server Action / Route Handler | `getSessionFromCookies()` or `requireAuthor()` from `@devlog/auth` | Full DB access — can verify the user exists and check role. |
 | Server Component (top of page) | `requireAuthor()` (throws `AuthorRequiredError` → caller does `notFound()` or `redirect('/admin/login')`) | Clean separation: throw → caller decides UX. |
 
@@ -677,27 +684,29 @@ The smallest interactive elements:
 
 ## 9. Anti-Patterns & Common Bugs
 
-### 9.1 AP-1: Importing `@devlog/auth` (root) in `middleware.ts` (Critical)
+### 9.1 AP-1: Importing `@devlog/auth` (root) in `proxy.ts` (Critical)
 
-**Symptom:** Build fails with `better-sqlite3` error in the Edge Runtime bundle:
+**Symptom:** Build fails with `better-sqlite3` error in the Edge Runtime bundle **or** `Turbopack: node:crypto not supported in Edge` warning:
 ```
 Error: better-sqlite3 is not defined
-  at Object.<anonymous> (middleware.ts)
+  at Object.<anonymous> (proxy.ts)
+Warning: node:crypto not supported in Edge (tokens.ts:16)
 ```
 
-**Root cause:** `@devlog/auth` (root, `packages/auth/src/index.ts`) imports `'server-only'` + `@devlog/db` + `drizzle-orm`. The Edge Runtime can't bundle `better-sqlite3` (it's a native Node addon).
+**Root cause:** `@devlog/auth` (root, `packages/auth/src/index.ts`) imports `'server-only'` + `@devlog/db` + `drizzle-orm`. The Edge Runtime can't bundle `better-sqlite3`/`node:crypto` (native Node addons). Since 2026-09-03 `tokens.ts` uses **Web Crypto `crypto.subtle` (`async`, no `Buffer`)**.
 
-**Fix:** Import from `@devlog/auth/tokens` instead — it's pure Web Crypto (`createHmac`, `timingSafeEqual`) with no Node-only deps:
+**Fix:** Import from `@devlog/auth/tokens` instead — pure Web Crypto (`crypto.subtle`, `timingSafeEqualHex`, `async`) with no Node-only deps:
 
 ```typescript
-// ❌ FORBIDDEN — pulls better-sqlite3 into the edge bundle
+// ❌ FORBIDDEN — pulls better-sqlite3/node:crypto into the edge bundle
 import { verifySessionToken } from '@devlog/auth';
 
-// ✅ Correct — pure crypto, edge-safe
+// ✅ Correct — pure Web Crypto, edge-safe (async)
 import { SESSION_COOKIE, verifySessionToken } from '@devlog/auth/tokens';
+// usage: const userId = await verifySessionToken(cookie)
 ```
 
-**Lesson:** The split between `packages/auth/src/index.ts` (full Better Auth) and `packages/auth/src/tokens.ts` (pure crypto) is **non-negotiable** for the Edge Runtime. ADR-002 in the PAD documents this decision.
+**Lesson:** The split between `packages/auth/src/index.ts` (DB-backed `signIn`/`getSession` + `drizzle`) and `packages/auth/src/tokens.ts` (pure Web Crypto `crypto.subtle`, `async`) is **non-negotiable** for the Edge Runtime. `proxy.ts` must remain `export async function proxy` (not `middleware`). ADR-002 + ADR-004 amendment. See also §15.11.
 
 ### 9.2 AP-2: Using `enum` or `namespace` (Critical)
 
@@ -891,7 +900,11 @@ window.addEventListener('scroll', onScroll, { passive: true });
 
 | Error | Cause | Fix |
 |---|---|---|
-| `better-sqlite3 is not defined` in middleware | Imported `@devlog/auth` (root) instead of `@devlog/auth/tokens` | Change import to `@devlog/auth/tokens` (see AP-1) |
+| `better-sqlite3 is not defined` in `proxy.ts` / `node:crypto not supported in Edge` | Imported `@devlog/auth` (root) or `node:crypto` in `tokens.ts` | Import `@devlog/auth/tokens` (Web Crypto `crypto.subtle`, `async`) — see AP-1 / §15.11 |
+| `Both middleware and proxy files detected` | Both `middleware.ts` and `proxy.ts` exist | Keep only `proxy.ts` (`export async function proxy`); delete `middleware.ts` shim |
+| `next start does not work with output: standalone` | Ran `next start` with `output:'standalone'` | Use `pnpm start` → `node apps/web/.next/standalone/apps/web/server.js` |
+| `Failed to find Response internal state key` | `drizzle-kit 0.27 + Node 24` `fetch` clash | Upgrade to `drizzle-kit ^0.31` and use `--config ./drizzle.config.ts` |
+| `[WARN] pnpm field no longer read` | `package.json pnpm.overrides` deprecated | Move `overrides` to `pnpm-workspace.yaml` (keep `pnpm` field for 9.15.4 compat) |
 | `error TS1287: 'enum' declarations are not allowed` | Used `enum` / `namespace` | Use `as const` + union types (see AP-2) |
 | `error TS2571: Object is of type 'unknown'` | `noUncheckedIndexedAccess` returns `T \| undefined` | Narrow the type with type guards or use optional chaining |
 | `Cannot find module '@devlog/db'` | Path alias not resolving | Check `tsconfig.base.json#paths` includes `@devlog/db`; run `pnpm install` to link the workspace |
@@ -932,8 +945,9 @@ window.addEventListener('scroll', onScroll, { passive: true });
 ### 10.5 Live-Site Verification Commands
 
 ```bash
-# Verify the production build boots locally
-pnpm build && cd apps/web/.next/standalone && node server.js
+# Verify the production build boots locally (standalone)
+pnpm build && node apps/web/.next/standalone/apps/web/server.js
+# (from apps/web): pnpm build && node .next/standalone/apps/web/server.js
 
 # Smoke test the public routes
 curl -sI http://localhost:3000/ | head -1                          # 200
@@ -961,11 +975,13 @@ curl -sI http://localhost:3000/ | grep -i 'content-security-policy'
 ```bash
 pnpm check-types   # 0 errors across 5 packages
 pnpm lint          # 0 errors (3 pre-existing warnings acceptable)
-pnpm test          # 154+ tests passing
-pnpm build         # Standalone build at apps/web/.next/standalone/
+pnpm test          # 272 tests passing (229 web + 16 auth + 21 types + 3 db + 3 email)
+pnpm build         # 34/34 pages → apps/web/.next/standalone/apps/web/server.js (proxy.ts, Web Crypto)
 
-# Or all at once:
-pnpm check         # = check-types && lint && test && build
+# Or all at once (full gate):
+pnpm check         # = check-types && lint && test:coverage && audit --prod && build
+# DB one-shot:
+pnpm db:setup      # = generate (0.31 --config) && migrate && seed (135K, 34/34)
 ```
 
 **Never push if any of these fail.** All four must be green.
@@ -1036,13 +1052,13 @@ Run the live-site verification commands in §10.5 against the deployed URL. Spec
 
 ## 12. Lessons Learnt & How to Avoid Them
 
-### 12.1 L1 — The Edge Runtime Auth Split (Phase 6)
+### 12.1 L1 — The Edge Runtime Auth Split (Phase 6 + 2026-09-03 hardening)
 
-**What happened:** Phase 6 added `middleware.ts` to guard `/admin/*`. Initial implementation imported `verifySessionToken` from `@devlog/auth` (root). Build failed with `better-sqlite3 is not defined`.
+**What happened:** Phase 6 added `proxy.ts` (was `middleware.ts`) to guard `/admin/*`. Initial implementation imported `verifySessionToken` from `@devlog/auth` (root). Build failed with `better-sqlite3 is not defined`. After `better-auth` removal, `tokens.ts` still used `node:crypto` (`createHmac`/`timingSafeEqual`/`Buffer`) which Turbopack warns `not supported in Edge` and which `proxy.ts` (Edge) cannot bundle.
 
-**Why it mattered:** The Edge Runtime can't bundle native Node addons like `better-sqlite3`. The full `@devlog/auth` package transitively imports it via `@devlog/db`.
+**Why it mattered:** Edge Runtime can't bundle native addons (`better-sqlite3`, `node:crypto`). The full `@devlog/auth` transitively imports `better-sqlite3` via `@devlog/db`.
 
-**How to avoid:** The split between `packages/auth/src/index.ts` (DB-backed sign-in + Drizzle) and `packages/auth/src/tokens.ts` (pure `node:crypto` HMAC) is **architectural**. The middleware can only import `@devlog/auth/tokens`. See ADR-002 + ADR-004 amendment in the PAD.
+**How to avoid:** The split between `packages/auth/src/index.ts` (DB-backed `signIn`/`getSession` + Drizzle) and `packages/auth/src/tokens.ts` (pure **Web Crypto `crypto.subtle`**, `async`, `timingSafeEqualHex`, no `Buffer`) is **architectural**. The `proxy.ts` (`export async function proxy`) may only import `@devlog/auth/tokens` (`await verifySessionToken`). See ADR-002 + ADR-004 amendment and §15.11. Remediation A fixed the Edge warning and made all token helpers `async`.
 
 ### 12.2 L2 — The `erasableSyntaxOnly` Migration (Phase 1)
 
@@ -1202,8 +1218,8 @@ See `apps/web/src/app/layout.tsx:60-97`.
 
 ### 13.1 Architecture Pitfalls
 
-- **Don't put DB access in `middleware.ts`.** Edge Runtime can't bundle `better-sqlite3`. Use `@devlog/auth/tokens` for edge-safe auth.
-- **Don't import `@devlog/auth` (root) in `middleware.ts`.** Same reason — pulls in `@devlog/db` + `better-sqlite3`.
+- **Don't put DB access in `proxy.ts`.** Edge Runtime can't bundle `better-sqlite3`. Use `@devlog/auth/tokens` for edge-safe auth.
+- **Don't import `@devlog/auth` (root) in `proxy.ts`.** Same reason — pulls in `@devlog/db` + `better-sqlite3`. Use `@devlog/auth/tokens` (`async`).
 - **Don't import `drizzle-orm` in Layer 1 (app) or Layer 2 (features).** Use `@devlog/db/queries` instead.
 - **Don't put React/JSX in Layer 3 (domain).** Domain is pure TS — Zod schemas, slugify, signed-token helpers.
 - **Don't put IO in Layer 3 (domain).** No `fetch`, no `fs`, no DB.
@@ -1579,43 +1595,42 @@ export const db: DrizzleClient = new Proxy(
 ) as DrizzleClient;
 ```
 
-### 15.11 Edge-Safe Token Pattern (HMAC + timing-safe compare)
+### 15.11 Edge-Safe Token Pattern (Web Crypto `crypto.subtle` + `async` — since 2026-09-03)
 
-**Location:** `packages/auth/src/tokens.ts`
+**Location:** `packages/auth/src/tokens.ts` (Edge-safe, no `node:crypto`/`Buffer`)
 
 ```typescript
-import { createHmac, timingSafeEqual } from 'node:crypto';
-
+// No node:crypto — Web Crypto only (Edge + Node 20+)
 const TOKEN_SEPARATOR = '.';
 
-function getSecret(): string {
-  const s = process.env.BETTER_AUTH_SECRET;
-  if (!s || s.length < 32) return 'dev-only-secret-replace-in-production-xxxxxxxxxxxxxx';
-  return s;
+function getSecret(): string { /* throws in prod if <32 chars */ }
+
+async function hmacHex(message: string): Promise<string> {
+  const key = await crypto.subtle.importKey('raw',
+    new TextEncoder().encode(getSecret()),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message));
+  return [...new Uint8Array(sig)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function timingSafeEqualHex(a: string, b: string): boolean { /* constant-time */ }
+
+export async function createSessionToken(userId: string): Promise<string> {
+  return `${userId}${TOKEN_SEPARATOR}${await hmacHex(userId)}`;
 }
 
-function sign(userId: string): string {
-  return createHmac('sha256', getSecret()).update(userId).digest('hex');
-}
-
-export function createSessionToken(userId: string): string {
-  return `${userId}${TOKEN_SEPARATOR}${sign(userId)}`;
-}
-
-export function verifySessionToken(token: string): string | null {
+export async function verifySessionToken(token: string): Promise<string | null> {
   const sep = token.indexOf(TOKEN_SEPARATOR);
   if (sep < 0) return null;
   const userId = token.slice(0, sep);
   const receivedHmac = token.slice(sep + 1);
   if (!userId || !receivedHmac) return null;
-  const expectedHmac = sign(userId);
+  if (!/^[a-f0-9]{64}$/.test(receivedHmac)) return null;
+  const expectedHmac = await hmacHex(userId);
+  if (!timingSafeEqualHex(receivedHmac, expectedHmac)) return null;
+  return userId;
+  // signToken / verifyToken follow same async pattern
+} // catch removed — hex regex + length check replace Buffer try/catch
   try {
-    const a = Buffer.from(receivedHmac, 'hex');
-    const b = Buffer.from(expectedHmac, 'hex');
-    if (a.length !== b.length) return null;
-    if (!timingSafeEqual(a, b)) return null;
-    return userId;
-  } catch {
     return null;
   }
 }
@@ -2077,7 +2092,7 @@ The PAD documents 7 ADRs. Summary:
 
 | ADR | Decision | Rationale |
 |---|---|---|
-| ADR-001 | Next.js 16 App Router | Server Components by default; MDX via `pageExtensions`; `middleware.ts` for edge auth |
+| ADR-001 | Next.js 16 App Router (now 16.3.4) | Server Components by default; MDX via `pageExtensions`; `proxy.ts` (was `middleware.ts`, now `export async function proxy`) for edge auth |
 | ADR-002 | Edge-safe auth split (`tokens.ts` vs `index.ts`) | Edge Runtime can't bundle `better-sqlite3`; pure crypto helpers go in `tokens.ts` |
 | ADR-003 | Tailwind v4 CSS-first `@theme` | No `tailwind.config.ts`; tokens in `globals.css`; design budget closed |
 | ADR-004 | Drizzle ORM + better-sqlite3 | SQLite-only; migrations via Drizzle Kit; lazy Proxy client avoids build-time DB opens |
@@ -2108,7 +2123,7 @@ The 6-phase workflow used for every implementation task:
 
 | File | Purpose |
 |---|---|
-| `apps/web/src/middleware.ts` | Layer 0 — admin route guard (Edge Runtime) |
+| `apps/web/src/proxy.ts` | Layer 0 — admin route guard (Edge `proxy`, Web Crypto) — replaces `middleware.ts` since 16.3.4 |
 | `apps/web/src/app/layout.tsx` | Root layout — theme cookie sync, metadata, skip link |
 | `apps/web/src/app/globals.css` | The full design system (1:1 port of mockup) |
 | `apps/web/src/lib/env.ts` | Zod-validated env vars (throws at boot in prod) |
@@ -2152,7 +2167,7 @@ GIT_SSH_COMMAND="skills/how-to-git-push-using-ssh-wrapper/scripts/ssh_git_wrappe
 
 ### Critical "Don'ts"
 
-- Don't import `@devlog/auth` (root) in `middleware.ts` — use `@devlog/auth/tokens`.
+- Don't import `@devlog/auth` (root) in `proxy.ts` — use `@devlog/auth/tokens` (`await verifySessionToken`).
 - Don't use `enum`, `namespace`, `as any`, default exports.
 - Don't add a 4th theme — design budget is closed.
 - Don't use Postgres/Redis — SQLite only.

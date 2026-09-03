@@ -19,11 +19,13 @@ Compact instructions for AI coding agents working in `/dev/log`. Read before edi
 | Lint all packages | `pnpm lint` (auto-fix: `pnpm lint:fix`) |
 | Test all packages | `pnpm test` (watch: `pnpm test:watch`) |
 | Coverage | `pnpm test:coverage` |
-| Production build | `pnpm build` → `apps/web/.next/standalone/` |
+| Production build | `pnpm build` → `apps/web/.next/standalone/` (standalone output) |
+| Production start | `pnpm start` → `node apps/web/.next/standalone/apps/web/server.js` (use `pnpm --filter @devlog/web start:next` for `next start`) |
 | **Full quality gate** | **`pnpm check`** |
-| Generate SQL migration | `pnpm db:generate` (Drizzle Kit diffs schema.ts) |
+| Generate SQL migration | `pnpm db:generate` (`drizzle-kit generate --config ./drizzle.config.ts` in `@devlog/db`) |
 | Apply migrations | `pnpm db:migrate` (creates `apps/web/devlog.db`) |
 | Seed dev DB | `pnpm db:seed` (3 posts, 6 archive, 5 snippets, 1 author) |
+| Init DB from scratch | `pnpm db:setup` (= `db:generate && db:migrate && db:seed`) |
 | Drizzle Studio | `pnpm db:studio` → http://localhost:4983 |
 | Single-package test | `pnpm --filter @devlog/web test` |
 
@@ -48,13 +50,13 @@ A layer may only import from layers *below* it or from its own layer:
 
 | Layer | Path | May NOT import |
 |---|---|---|
-| 0. proxy | `apps/web/src/middleware.ts` | DB, Drizzle, `@devlog/auth` root (only `@devlog/auth/tokens`) |
+| 0. proxy | `apps/web/src/proxy.ts` (replaces `middleware.ts` since Next 16.3.4) | DB, Drizzle, `@devlog/auth` root (only `@devlog/auth/tokens`) |
 | 1. app | `apps/web/src/app/**` | `drizzle-orm`, `better-sqlite3`, `@devlog/db` directly — call features/lib instead |
 | 2. features | `apps/web/src/features/**` | Other features' internals; `drizzle-orm` directly (use `@devlog/db/queries`) |
 | 3. domain | `apps/web/src/domain/**` | React, Drizzle, better-sqlite3, resend — pure TS only |
 | 4. lib | `apps/web/src/lib/**` | (free pass — this is where Node-only deps live) |
 
-**`apps/web/src/middleware.ts` is Edge Runtime.** Importing `@devlog/auth` (which pulls `better-sqlite3`) breaks the build. Import `@devlog/auth/tokens` instead — it's pure Web Crypto (HMAC-SHA256) with no Node deps.
+**`apps/web/src/proxy.ts` is Edge Runtime.** Importing `@devlog/auth` (which pulls `better-sqlite3`) breaks the build. Import `@devlog/auth/tokens` instead — it's pure Web Crypto (`crypto.subtle` HMAC-SHA256, `async`, no `node:crypto`/`Buffer`) with no Node deps.
 
 ## TypeScript — Strict, Non-Negotiable
 
@@ -81,11 +83,11 @@ A layer may only import from layers *below* it or from its own layer:
 
 ## Next.js 16 Quirks
 
-- **`middleware.ts` (not `proxy.ts`).** Next.js 16 renamed middleware → proxy; we keep `middleware.ts` for ecosystem compatibility. The matcher is `['/admin/:path*']`.
-- **`output: 'standalone'`** — build produces a self-contained server in `apps/web/.next/standalone/`.
+- **`proxy.ts` (replaces `middleware.ts` since 16.3.4).** Next 16 renamed `middleware.ts` → `proxy.ts`; build **errors** if both exist. The matcher is `['/admin/:path*']`. Keep only `apps/web/src/proxy.ts` (`export async function proxy`).
+- **`output: 'standalone'`** — build produces `apps/web/.next/standalone/apps/web/server.js`. Start with `node apps/web/.next/standalone/apps/web/server.js` (not `next start`).
 - **MDX is first-class** — `pageExtensions: ['ts','tsx','js','jsx','md','mdx']`. Content lives in `apps/web/content/{posts,snippets}/*.mdx`.
 - **PPR is disabled** (`experimental.cacheComponents` commented out in `next.config.ts`). Enable in Phase 4+ when the landing page is fully built.
-- **Security headers** are declared inline in `next.config.ts` (CSP, X-Content-Type-Options, X-Frame-Options: DENY, Referrer-Policy, Permissions-Policy, HSTS). Edit there, not in middleware.
+- **Security headers** are declared inline in `next.config.ts` (CSP, X-Content-Type-Options, X-Frame-Options: DENY, Referrer-Policy, Permissions-Policy, HSTS). Edit there, not in `proxy.ts`.
 
 ## Database — SQLite Only
 
@@ -100,10 +102,10 @@ A layer may only import from layers *below* it or from its own layer:
 
 - **`better-auth` is no longer a dependency** (audit remediation R-2). All auth lives in `@devlog/auth`:
   - `src/index.ts` — `signIn` / `getSession` / `requireAuthor` / `signOut` (Node-only: Drizzle + better-sqlite3). `getSessionFromCookies` uses `next/headers` (peer dep).
-  - `src/tokens.ts` — edge-safe HMAC-SHA256 (`node:crypto`, `timingSafeEqual`). Exports `SESSION_COOKIE`, `createSessionToken()`, `verifySessionToken()`, `signToken()`, `verifyToken()`.
+  - `src/tokens.ts` — edge-safe HMAC-SHA256 via **Web Crypto `crypto.subtle`** (`async`, `timingSafeEqualHex`, no `node:crypto`/`Buffer`). Exports `SESSION_COOKIE`, `createSessionToken()`, `verifySessionToken()`, `signToken()`, `verifyToken()` (all `async`).
   - `src/password.ts` — scrypt `hashPassword()` / `verifyPassword()` (format `scrypt:N:r:p:salt:hash`).
 - **Session cookie:** `devlog_session` (named via `SESSION_COOKIE` constant). Token format `<userId>.<hmac>`, 30-day TTL.
-- **Role enum** (as `as const` union, not `enum`): `'author' | 'subscriber'` on `users.role` (schema mirror in `@devlog/types`). Only `author` may access `/admin/*` — enforced by `requireAuthor()` in the admin layout; the edge middleware only verifies the session HMAC.
+- **Role enum** (as `as const` union, not `enum`): `'author' | 'subscriber'` on `users.role` (schema mirror in `@devlog/types`). Only `author` may access `/admin/*` — enforced by `requireAuthor()` in the admin layout; the edge `proxy` only verifies the session HMAC (`await verifySessionToken`).
 - **Secrets:** `BETTER_AUTH_SECRET` (env name kept for compat) MUST be ≥32 chars in production or `getSecret()` throws.
 
 ## Server Actions
@@ -152,7 +154,7 @@ Required in prod (will throw at boot if missing): `BETTER_AUTH_SECRET` (32+ char
 
 ## Don't Do This
 
-- Import `@devlog/auth` (root) in `middleware.ts` — breaks the Edge Runtime. Use `@devlog/auth/tokens`.
+- Import `@devlog/auth` (root) in `proxy.ts` — breaks the Edge Runtime. Use `@devlog/auth/tokens`.
 - Use `enum`, `namespace`, `as any`, default exports — all lint-blocked.
 - Add a 4th theme — design budget is closed (dark/light/cyber only).
 - Use Postgres, Redis, or any DB other than SQLite (single file at `apps/web/devlog.db`).
@@ -161,145 +163,3 @@ Required in prod (will throw at boot if missing): `BETTER_AUTH_SECRET` (32+ char
 - Use `pnpm db:push` in prod — always `db:generate` → review → `db:migrate`.
 - Skip the failing test — TDD order is non-negotiable.
 - Modify `skills/**` — these are read-only reference skills, not part of the project.
-
----
-
-$ pnpm build
-[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
-
-> devlog@1.0.0 build /Home1/project/programmer-blog
-> turbo run build
-
-• turbo 2.10.12
-
-   • Packages in scope: @devlog/auth, @devlog/config, @devlog/db, @devlog/email, @devlog/types, @devlog/web
-   • Running build in 6 packages
-   • Remote caching disabled
-
-@devlog/web:build: cache miss, executing c184dbec2eea8aad
-@devlog/web:build:
-@devlog/web:build: > @devlog/web@1.0.0 build /Home1/project/programmer-blog/apps/web
-@devlog/web:build: > next build
-@devlog/web:build:
-@devlog/web:build: ▲ Next.js 16.3.3 (Turbopack)
-@devlog/web:build: ✓ Running next.config.ts took 33ms
-@devlog/web:build:
-@devlog/web:build: ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead.
-@devlog/web:build:
-@devlog/web:build:   To migrate automatically, run:
-@devlog/web:build:   npx @next/codemod@canary middleware-to-proxy .
-@devlog/web:build:
-@devlog/web:build:   Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
-@devlog/web:build:   Creating an optimized production build ...
-@devlog/web:build: ✓ Compiled successfully in 11.3s
-@devlog/web:build: ✓ Finished TypeScript in 7.8s
-  Collecting page data using 3 workers  .[posts/generateStaticParams] DB unavailable, skipping prerender SqliteError: no such table: posts
-@devlog/web:build:     at bu (../../packages/db/src/queries.ts:84:6)
-@devlog/web:build:     at l (src/app/(public)/posts/[slug]/page.tsx:67:23)
-@devlog/web:build:   82 |     .limit(pageSize)
-@devlog/web:build:   83 |     .offset(offset)
-@devlog/web:build: > 84 |     .all();
-@devlog/web:build:      |      ^
-@devlog/web:build:   85 | }
-@devlog/web:build:   86 |
-@devlog/web:build:   87 | export async function getArchiveCount(tagSlug?: string, query?: string) { {
-@devlog/web:build:   code: 'SQLITE_ERROR'
-@devlog/web:build: }
-@devlog/web:build: ✓ Collecting page data using 3 workers in 1253ms
-  Generating static pages using 3 workers (16/22)  [==  ][rss] DB unavailable, generating minimal feed SqliteError: no such table: posts
-@devlog/web:build:     at iN (../../packages/db/src/queries.ts:189:6)
-@devlog/web:build:     at i (src/app/api/rss.xml/route.ts:32:7)
-@devlog/web:build:   187 |     .orderBy(desc(posts.publishedAt))
-@devlog/web:build:   188 |     .limit(limit)
-@devlog/web:build: > 189 |     .all();
-@devlog/web:build:       |      ^
-@devlog/web:build:   190 | }
-@devlog/web:build:   191 |
-@devlog/web:build:   192 | // ── Subscribers ───────────────────────────────────────────────────────────── {
-@devlog/web:build:   code: 'SQLITE_ERROR'
-@devlog/web:build: }
-@devlog/web:build: [sitemap] DB unavailable, generating minimal sitemap SqliteError: no such table: posts
-@devlog/web:build:     at i$ (../../packages/db/src/queries.ts:84:6)
-@devlog/web:build:     at p (src/app/api/sitemap.xml/route.ts:54:7)
-@devlog/web:build:   82 |     .limit(pageSize)
-@devlog/web:build:   83 |     .offset(offset)
-@devlog/web:build: > 84 |     .all();
-@devlog/web:build:      |      ^
-@devlog/web:build:   85 | }
-@devlog/web:build:   86 |
-@devlog/web:build:   87 | export async function getArchiveCount(tagSlug?: string, query?: string) { {
-@devlog/web:build:   code: 'SQLITE_ERROR'
-@devlog/web:build: }
-✓ Generating static pages using 3 workers (22/22) in 616ms
-@devlog/web:build: Turbopack build encountered 1 warning:
-@devlog/web:build: ./packages/auth/src/tokens.ts:16:1
-@devlog/web:build: Warning: A Node.js module is loaded ('node:crypto' at line 16) which is not supported in the Edge Runtime.
-@devlog/web:build:     Learn More: https://nextjs.org/docs/messages/node-module-in-edge-runtime
-@devlog/web:build:   14 |  * subscriberId, etc.).
-@devlog/web:build:   15 |  */
-@devlog/web:build: > 16 | import { createHmac, timingSafeEqual } from 'node:crypto';
-@devlog/web:build:      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-@devlog/web:build:   17 |
-@devlog/web:build:   18 | export const SESSION_COOKIE = 'devlog_session';
-@devlog/web:build:   19 | const TOKEN_SEPARATOR = '.';
-@devlog/web:build:
-@devlog/web:build: Ecmascript file had an error
-@devlog/web:build:
-@devlog/web:build: Import traces:
-@devlog/web:build:   #1 [App Route]:
-@devlog/web:build:     ./packages/auth/src/tokens.ts
-@devlog/web:build:     ./apps/web/src/app/api/confirm/route.ts
-@devlog/web:build:
-@devlog/web:build:   #2 [Edge Middleware]:
-@devlog/web:build:     ./packages/auth/src/tokens.ts
-@devlog/web:build:     ./apps/web/src/middleware.ts
-@devlog/web:build:
-@devlog/web:build:   #3 [Server Component]:
-@devlog/web:build:     ./packages/auth/src/tokens.ts
-@devlog/web:build:     ./apps/web/src/app/(public)/unsubscribe/page.tsx
-@devlog/web:build:
-@devlog/web:build:   #4 [Server Component]:
-@devlog/web:build:     ./packages/auth/src/tokens.ts
-@devlog/web:build:     ./apps/web/src/features/subscribe/actions.ts
-@devlog/web:build:
-@devlog/web:build:
-@devlog/web:build: ✓ Finalizing page optimization in 1861ms
-@devlog/web:build:
-@devlog/web:build: Route (app)                    Revalidate  Expire
-@devlog/web:build: ┌ ƒ /
-@devlog/web:build: ├ ƒ /_not-found
-@devlog/web:build: ├ ƒ /admin
-@devlog/web:build: ├ ƒ /admin/comments
-@devlog/web:build: ├ ƒ /admin/login
-@devlog/web:build: ├ ƒ /admin/posts
-@devlog/web:build: ├ ƒ /admin/posts/[id]
-@devlog/web:build: ├ ƒ /admin/posts/new
-@devlog/web:build: ├ ƒ /admin/settings
-@devlog/web:build: ├ ƒ /admin/subscribers
-@devlog/web:build: ├ ƒ /admin/subscribers/export
-@devlog/web:build: ├ ƒ /api/confirm
-@devlog/web:build: ├ ƒ /api/github-stats
-@devlog/web:build: ├ ○ /api/robots.txt                    1d      1y
-@devlog/web:build: ├ ○ /api/rss.xml                       1h      1y
-@devlog/web:build: ├ ○ /api/sitemap.xml                   1h      1y
-@devlog/web:build: ├ ƒ /archive
-@devlog/web:build: ├ ƒ /archive/page/[page]
-@devlog/web:build: ├ ● /posts/[slug]
-@devlog/web:build: ├ ƒ /preferences
-@devlog/web:build: ├ ƒ /snippets
-@devlog/web:build: ├ ƒ /snippets/[slug]
-@devlog/web:build: └ ƒ /unsubscribe
-@devlog/web:build:
-@devlog/web:build:
-@devlog/web:build: ƒ Proxy (Middleware)
-@devlog/web:build:
-@devlog/web:build: ○  (Static)   prerendered as static content
-@devlog/web:build: ●  (SSG)      prerendered as static HTML (uses generateStaticParams)
-@devlog/web:build: ƒ  (Dynamic)  server-rendered on demand
-@devlog/web:build:
-@devlog/web:build:
-
- Tasks:    1 successful, 1 total
-Cached:    0 cached, 1 total
-  Time:    25.41s
-

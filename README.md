@@ -67,18 +67,18 @@ Current audit posture: **0 vulnerabilities** in `pnpm audit --prod` — 0 critic
 |---|---|---|---|
 | Package manager | pnpm | `9.15.4` | Never `npm` or `yarn`. Workspace via `pnpm-workspace.yaml`. |
 | Monorepo | Turborepo | `^2.4.0` | `turbo.json` declares `globalEnv` for env-aware caching. |
-| Web framework | Next.js (App Router) | `^16.0` | `output: 'standalone'`; `middleware.ts` (not `proxy.ts`). |
+| Web framework | Next.js (App Router) | `^16.3.4` | `output: 'standalone'` → `apps/web/.next/standalone/apps/web/server.js`; `proxy.ts` (replaces `middleware.ts` since 16.3.4). |
 | UI runtime | React | `^19.0` | No `forwardRef` — `ref` is a regular prop. |
 | Language | TypeScript | `^5.9.0` | `strict`, `noUncheckedIndexedAccess`, `erasableSyntaxOnly` (forbids `enum`/`namespace`). |
 | Styling | Tailwind CSS | v4 (CSS-first `@theme`) | No `tailwind.config.ts`. Tokens in `globals.css` + `packages/config/tailwind/base.css`. |
-| ORM | drizzle-orm | `^0.40` | SQLite-only; migrations via `drizzle-kit`. |
-| Database | better-sqlite3 | `^12` | Single file at `apps/web/devlog.db`. No Postgres. |
-| Auth | @devlog/auth (homegrown) | — | HMAC-SHA256 session/transaction tokens + scrypt passwords. Better Auth removed per ADR-004 amendment (R-2). |
-| Email | Resend + React Email | `^4` / `^3` | Degrades gracefully without `RESEND_API_KEY` in dev. |
-| Validation | Zod | `^3.25` | At every boundary: Server Action inputs, env vars, API bodies. |
-| Client state | Zustand | `^5` | Theme + UI stores. Never for server state. |
-| Linter | ESLint | 9 (flat config) | `no-restricted-syntax` blocks `as any`/`enum`/`namespace`. |
-| Test runner | Vitest + jsdom | `^2.1` / `^25` | Co-located tests: `Foo.tsx` ↔ `Foo.test.tsx`. |
+| ORM | drizzle-orm | `^0.45.2` | SQLite-only; migrations via `drizzle-kit ^0.31`. |
+| Database | better-sqlite3 | `^12.11.1` | Single file at `apps/web/devlog.db`. No Postgres. |
+| Auth | @devlog/auth (homegrown) | — | HMAC-SHA256 via Web Crypto `crypto.subtle` (`async`, no `node:crypto`) + scrypt. Better Auth removed R-2. |
+| Email | Resend + React Email | `^4.8.0` / `^3` | Degrades gracefully without `RESEND_API_KEY` in dev. |
+| Validation | Zod | `^3.25.76` | At every boundary: Server Action inputs, env vars, API bodies. |
+| Client state | Zustand | `^5.0.15` | Theme + UI stores. Never for server state. |
+| Linter | ESLint | `9.39.5` (flat) | `no-restricted-syntax` blocks `as any`/`enum`/`namespace`. |
+| Test runner | Vitest + jsdom | `^3.2.7` / `^25` | Co-located tests: `Foo.tsx` ↔ `Foo.test.tsx`. |
 | Content | MDX | — | Posts/snippets in `apps/web/content/*.mdx`. |
 
 ## Architecture
@@ -86,7 +86,7 @@ Current audit posture: **0 vulnerabilities** in `pnpm audit --prod` — 0 critic
 ```mermaid
 flowchart TB
     subgraph Edge["Edge Runtime (Layer 0)"]
-        MW[middleware.ts<br/>admin auth guard]
+        MW[proxy.ts<br/>admin auth guard (Web Crypto)]
     end
 
     subgraph App["App Router (Layer 1)"]
@@ -119,7 +119,7 @@ flowchart TB
 
     subgraph Packages["@devlog/* packages"]
         P1[db — Drizzle schema]
-        P2[auth — Better Auth + tokens.ts]
+        P2[auth — homegrown HMAC (Web Crypto) + scrypt]
         P3[email — Resend + templates]
         P4[types — shared Zod]
         P5[config — ESLint/TS/Tailwind bases]
@@ -141,7 +141,7 @@ flowchart TB
 1. **5-layer golden rule** — a layer may only import from layers *below* it or its own layer. Violations are review-blocking.
 2. **TDD mandatory** — Red → Green → Refactor. No production code without a failing test first.
 3. **Trunk-based on `main`** — no feature branches, no PRs. Atomic Conventional Commits with `Refs: FR-N` footers.
-4. **Edge-safe auth split** — `@devlog/auth/tokens` is pure Web Crypto (no Drizzle, no better-sqlite3) so `middleware.ts` can import it.
+4. **Edge-safe auth split** — `@devlog/auth/tokens` is pure Web Crypto `crypto.subtle` (`async`, no `node:crypto`/`Buffer`) so `proxy.ts` Edge can import it.
 5. **CSS-only animation** — no Framer Motion, no GSAP. Lighthouse ≥95 is the design budget.
 6. **Zod at every boundary** — env vars, Server Action inputs, API bodies, form data.
 7. **`landing_page_mockup.html` is the source of truth** — `globals.css` is a 1:1 port. Modify the mockup first, then propagate to CSS.
@@ -161,8 +161,8 @@ programmer-blog/
 │   │   ├── stores/                    # Zustand stores: theme-store, ui-store
 │   │   └── __mocks__/server-only.ts   # Vitest mock for server-only imports
 │   ├── content/                       # MDX essays and snippets
-│   ├── middleware.ts                  # Layer 0: admin route guard (Edge Runtime)
-│   ├── next.config.ts                 # Security headers, transpilePackages, MDX, standalone
+│   ├── proxy.ts                       # Layer 0: admin route guard (Edge, Web Crypto) — replaces middleware.ts since 16.3.4
+│   ├── next.config.ts                 # Security headers, transpilePackages, MDX, standalone → .next/standalone/apps/web/server.js
 │   ├── vitest.config.ts               # Vitest + jsdom
 │   └── postcss.config.mjs
 ├── packages/
@@ -205,8 +205,9 @@ cp .env.example .env.local
 #   SIGNED_TOKEN_SECRET:  openssl rand -hex 32
 # RESEND_API_KEY is optional in dev — subscribe flow degrades gracefully without it.
 
-# 4. Database (first run only)
-pnpm db:generate   # Generate SQL migrations from schema.ts
+# 4. Database (first run only) — one-shot alternative:
+# pnpm db:setup  # = generate && migrate && seed
+pnpm db:generate   # drizzle-kit generate --config ./drizzle.config.ts (0.31)
 pnpm db:migrate     # Apply migrations (creates apps/web/devlog.db)
 pnpm db:seed        # Seed mockup data (3 posts, 6 archive items, 5 snippets, 1 author)
 
@@ -214,7 +215,8 @@ pnpm db:seed        # Seed mockup data (3 posts, 6 archive items, 5 snippets, 1 
 pnpm dev           # Boots Next.js at http://localhost:3000
 
 # 6. Verify the full quality gate
-pnpm check         # = check-types && lint && test && build
+pnpm check         # = check-types && lint && test:coverage && audit --prod && build
+# Production start (standalone): pnpm start → node apps/web/.next/standalone/apps/web/server.js
 ```
 
 ### Verify Setup
@@ -278,7 +280,7 @@ pnpm check         # = check-types && lint && test && build
 | `/api/sitemap.xml` | Public | Sitemap route |
 | `/api/robots.txt` | Public | Robots route |
 
-### Auth (gated by `middleware.ts`)
+### Auth (gated by `proxy.ts` Web Crypto)
 
 | Route | Description |
 |---|---|
@@ -329,16 +331,16 @@ Every code change follows **Red → Green → Refactor**:
 - ✅ `pnpm lint` — 0 errors, 0 warnings
 - ✅ `pnpm test` — 272 tests passing across all packages (229 web / 16 auth / 21 types / 3 db / 3 email)
 - ✅ `pnpm test:coverage` — 65.36% lines vs staged regression thresholds (80% target tracked as R-30)
-- ✅ `pnpm build` — 25 routes, including `/opengraph-image`, `/posts/[slug]/opengraph-image`, `/icon.svg`, `/manifest.webmanifest`
-- ✅ `pnpm audit --prod` — **0 vulnerabilities** (resolved via dependency removal + `pnpm.overrides`)
+- ✅ `pnpm build` — **34 routes** (16.3.4), including `/opengraph-image`, `/posts/[slug]/opengraph-image`, `/icon.svg`, `/manifest.webmanifest` — `proxy.ts` Edge, Web Crypto, no `node:crypto` warning
+- ✅ `pnpm audit --prod` — **0 vulnerabilities** (`pnpm.overrides` via `pnpm-workspace.yaml` + `package.json`; `pnpm` field warning accepted on 9.15.4)
 
 ## The Golden Rule
 
 A layer may only import from layers *below* it (higher-numbered) or from its own layer. Violations are review-blocking.
 
 ```
-Layer 0: proxy    — Edge request handler. NO database access.
-                    Imports only @devlog/auth/tokens (pure crypto).
+Layer 0: proxy    — Edge `proxy.ts` (`export async function proxy`). NO database access.
+                    Imports only `@devlog/auth/tokens` (Web Crypto `crypto.subtle`, `async`).
 Layer 1: app      — App Router. Stays thin. NO direct database queries in route files.
                     Routes call into features/ or lib/, never into packages/db directly.
 Layer 2: features — Feature modules. Each owns its UI, queries, mutations, types.
@@ -379,7 +381,7 @@ Every code change starts with a failing test. See [Testing](#testing) above for 
 
 - **React 19:** No `forwardRef` — `ref` is a regular prop.
 - **Tailwind v4:** CSS-first `@theme` config, no `tailwind.config.ts`. Component classes (`.btn-primary`, `.article-card`, etc.) live in `globals.css` ported verbatim from the mockup.
-- **Next.js 16:** `middleware.ts` (not `proxy.ts`), `output: 'standalone'`, MDX via `pageExtensions`.
+- **Next.js 16.3.4:** `proxy.ts` (replaces `middleware.ts`; build errors if both exist), `output: 'standalone'` → `node …/server.js`, MDX via `pageExtensions`.
 - **TypeScript:** `erasableSyntaxOnly: true` forbids `enum`/`namespace` — use `as const` objects + union types.
 
 ### Pre-commit Hooks
@@ -406,7 +408,7 @@ Full troubleshooting in `skills/how-to-git-push-using-ssh-wrapper/SKILL.md`.
 | 3. Landing page (mockup port) | ✅ Complete | Hero, Marquee, RecentNotes, SnippetShowcase, ArchivePreview, SubscribeSection |
 | 4. Public blog routes | ✅ Complete | `/archive`, `/posts/[slug]`, `/snippets`, MDX rendering |
 | 5. Subscribe + email | ✅ Complete | Server Action, Zod schema, sliding-window rate limiter, Resend integration |
-| 6. Auth + admin | ✅ Complete | `middleware.ts`, login page, admin dashboard, post editor |
+| 6. Auth + admin | ✅ Complete | `proxy.ts` (was `middleware.ts`), login page, admin dashboard, post editor |
 | 7. Admin (subscribers + comments + settings) | ✅ Complete | CSV export, comment moderation, settings form, RSS/sitemap/robots |
 | 8. Validation + hardening | 🚧 In progress | This README/CLAUDE.md/AGENTS.md/SKILL.md refresh; security notes pending |
 
@@ -417,12 +419,16 @@ Full troubleshooting in `skills/how-to-git-push-using-ssh-wrapper/SKILL.md`.
 | Issue | Cause | Fix |
 |---|---|---|
 | `git push` → `Permission denied (publickey)` | OpenSSH not installed in the environment | Use the SSH wrapper: `GIT_SSH_COMMAND="skills/how-to-git-push-using-ssh-wrapper/scripts/ssh_git_wrapper_v3.py -i docs/ssh-key.txt -o StrictHostKeyChecking=accept-new" git push origin main` |
-| Build fails with `better-sqlite3` error in `middleware.ts` | `middleware.ts` imported `@devlog/auth` (root) which pulls `better-sqlite3` into the Edge bundle | Import `@devlog/auth/tokens` instead — it's pure Web Crypto with no Node deps |
+| `pnpm start` → `next start does not work with output: standalone` | `next.config.ts` `output:'standalone'` but `next start` ignores standalone bundle | Use `pnpm start` → `node apps/web/.next/standalone/apps/web/server.js` (`pnpm --filter @devlog/web start:next` for `next start`) |
+| Build fails with `better-sqlite3` error in `proxy.ts` | `proxy.ts` imported `@devlog/auth` (root) which pulls `better-sqlite3` into the Edge bundle | Import `@devlog/auth/tokens` instead — it's pure Web Crypto `crypto.subtle` (`async`, no Node deps) |
 | `tsc` fails with `enum declarations are not allowed` | `erasableSyntaxOnly: true` is set in `tsconfig.base.json` | Use `as const` object + union type: `const Role = { Author: 'author', Subscriber: 'subscriber' } as const; type Role = typeof Role[keyof typeof Role];` |
 | Vitest mock factory throws `Cannot access X before initialization` | `vi.mock()` is hoisted above imports; outer-scope vars aren't available in the factory | Inline everything inside the factory. Use `vi.hoisted()` if you must share state |
 | Subscribe flow silently does nothing in dev | `RESEND_API_KEY` is unset — the flow degrades gracefully | Set `RESEND_API_KEY=re_test_...` in `.env.local`, or check server logs for the "skipped" message |
 | `NEXT_PUBLIC_SITE_URL` mismatch breaks RSS/OG tags | Default is `http://localhost:3000`; prod deploy didn't override | Set `NEXT_PUBLIC_SITE_URL=https://your-domain.com` in the deploy environment |
 | Article card hover shadow looks wrong in light theme | Tailwind's default `shadow-lg` was used instead of the mockup's `box-shadow` | Use the `.article-card` component class from `globals.css` (lines 410–487); the light-theme override is built in |
+| `drizzle-kit generate` → `Failed to find Response internal state key` | `drizzle-kit 0.27 + Node 24` native `fetch` clash | Upgrade to `drizzle-kit ^0.31` (now `0.31.10`) + use `--config ./drizzle.config.ts` |
+| `pnpm` warns `pnpm field no longer read` | `package.json pnpm.overrides` deprecated since pnpm 10 | Move `overrides` to `pnpm-workspace.yaml` (kept `pnpm` field for `9.15.4` compat; audit stays `0`) |
+| Build warns `middleware file convention deprecated` | Next 16.3.4 renamed `middleware.ts` → `proxy.ts`; build errors if both exist | Use only `apps/web/src/proxy.ts` (`export async function proxy`) |
 
 ## License
 

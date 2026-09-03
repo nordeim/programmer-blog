@@ -3,6 +3,7 @@ IMPORTANT: File is read fresh for every conversation. Be brief and practical.
 project_type: nextjs-monorepo
 framework: next.js-16-app-router
 last_updated: 2026-09-03
+# Revalidated 2026-09-03 — Next 16.3.4 / drizzle-kit 0.31 / proxy.ts / Web Crypto
 ---
 
 # `/dev/log` — Programmer Blog
@@ -31,7 +32,7 @@ Follow for all implementation tasks:
 - **Mockup is the source of truth.** `landing_page_mockup.html` defines layout, color tokens, keyframes, and component classes. `apps/web/src/app/globals.css` and `packages/config/tailwind/base.css` are 1:1 ports. Any visual change starts in the mockup, then propagates to CSS.
 - **Trunk-based, no PRs.** All commits to `main`. Atomic Conventional Commits with `Refs: FR-N` footer. No feature branches.
 - **TDD or it didn't happen.** Every line of production code is preceded by a failing test. Tests live next to source (`Component.test.tsx`).
-- **Edge-safe auth split.** `packages/auth/src/tokens.ts` is pure crypto (no Drizzle, no better-sqlite3) so the `middleware.ts` edge layer can import it without bundling Node-only deps.
+- **Edge-safe auth split.** `packages/auth/src/tokens.ts` is pure Web Crypto (`crypto.subtle`, `async`) so the `proxy.ts` Edge layer can import it without bundling Node-only deps.
 - **CSS-only animation.** No Framer Motion, no GSAP. All motion is `@keyframes` + `transition`. Lighthouse ≥95 is the design budget.
 - **SQLite is the only DB.** better-sqlite3, single file at `apps/web/devlog.db`. No Postgres, no Redis. Drizzle handles migrations (`pnpm db:generate` → `pnpm db:migrate`).
 
@@ -60,8 +61,8 @@ Follow for all implementation tasks:
 
 - **App Router only.** Files under `apps/web/src/app/**`. No `pages/` directory.
 - **Server Components by default.** Add `'use client'` only when the component uses state, effects, browser APIs, or event handlers.
-- **`middleware.ts` (not `proxy.ts`).** Next.js 16 renamed middleware → proxy; we keep `middleware.ts` for ecosystem compatibility. It runs on the Edge Runtime and may only import `@devlog/auth/tokens` (pure crypto) — never `@devlog/auth` (which pulls better-sqlite3).
-- **`output: 'standalone'`.** Build produces `apps/web/.next/standalone/` for self-hosted deploy.
+- **`proxy.ts` (replaces `middleware.ts` since 16.3.4).** Next 16 renamed `middleware.ts` → `proxy.ts`; build **errors** if both exist. It runs on the Edge Runtime (`export async function proxy`) and may only import `@devlog/auth/tokens` (pure Web Crypto) — never `@devlog/auth` (which pulls better-sqlite3). Matcher `['/admin/:path*']`.
+- **`output: 'standalone'`.** Build produces `apps/web/.next/standalone/apps/web/server.js`. Start with `node apps/web/.next/standalone/apps/web/server.js` (or `pnpm --filter @devlog/web start`), not `next start`.
 - **`transpilePackages`** for all 5 local packages (declared in `next.config.ts`).
 - **`pageExtensions: ['ts','tsx','js','jsx','md','mdx']`** — MDX is a first-class route extension.
 - **MDX content** lives in `apps/web/content/{posts,snippets}/*.mdx`.
@@ -97,11 +98,11 @@ Follow for all implementation tasks:
 ### Auth (homegrown — Better Auth removed, ADR-004 amendment)
 
 - **`better-auth` is NOT a dependency anymore** (audit remediation R-2, 2026-09-03). The v1 auth surface is served entirely by `@devlog/auth`:
-  - `src/tokens.ts` — edge-safe HMAC-SHA256 tokens (`node:crypto`, `timingSafeEqual`), keyed by `BETTER_AUTH_SECRET` (env name kept for compat). Session format `<userId>.<hmac>`; transaction tokens for confirm/unsubscribe/preferences.
+  - `src/tokens.ts` — edge-safe HMAC-SHA256 via **Web Crypto `crypto.subtle`** (`async`, `timingSafeEqualHex`, no `node:crypto`/`Buffer`), keyed by `BETTER_AUTH_SECRET` (env name kept for compat). Session format `<userId>.<hmac>`; transaction tokens for confirm/unsubscribe/preferences. All exports `async` since 2026-09-03 (R-A).
   - `src/password.ts` — scrypt hashing (N=2^15, r=8, p=1, format `scrypt:N:r:p:salt:hash`, `timingSafeEqual`).
   - `src/index.ts` — DB-backed `signIn` / `getSession` / `requireAuthor` (role gate) / `getSessionFromCookies` (uses `next/headers`; `next` is a peerDependency).
 - **Session cookie name:** `devlog_session` (exported as `SESSION_COOKIE` from `@devlog/auth/tokens`).
-- **Role enum** is `'author' | 'subscriber'` (stored on `users.role`, schema also in `@devlog/types`). `author` can access `/admin/*`; `subscriber` cannot. The admin layout enforces `requireAuthor()`; the edge middleware only verifies the session HMAC.
+- **Role enum** is `'author' | 'subscriber'` (stored on `users.role`, schema also in `@devlog/types`). `author` can access `/admin/*`; `subscriber` cannot. The admin layout enforces `requireAuthor()`; the edge `proxy` only verifies the session HMAC (`await verifySessionToken`).
 - **Production secret policy:** `getSecret()` throws when `BETTER_AUTH_SECRET` is missing/<32 chars in production (R-5).
 
 ### Resend + React Email
@@ -149,9 +150,11 @@ cp .env.example .env.local
 #   openssl rand -hex 32  → SIGNED_TOKEN_SECRET
 # RESEND_API_KEY is optional in dev (subscribe flow degrades gracefully).
 
-pnpm db:generate   # Generate SQL from schema.ts (writes packages/db/migrations/)
+pnpm db:generate   # `drizzle-kit generate --config ./drizzle.config.ts` in @devlog/db (0.31)
 pnpm db:migrate    # Apply migrations (creates apps/web/devlog.db)
 pnpm db:seed       # Seed mockup data (3 posts, 6 archive items, 5 snippets, 1 author)
+# One-shot from scratch:
+pnpm db:setup      # = db:generate && db:migrate && db:seed
 
 pnpm dev           # Boots Next.js at http://localhost:3000
 ```
@@ -161,7 +164,8 @@ pnpm dev           # Boots Next.js at http://localhost:3000
 | Command | Purpose |
 |---|---|
 | `pnpm dev` | Start Next.js dev server (Turbopack) |
-| `pnpm build` | Production build → `apps/web/.next/standalone/` |
+| `pnpm build` | Production build → `apps/web/.next/standalone/apps/web/server.js` |
+| `pnpm start` | `node apps/web/.next/standalone/apps/web/server.js` (or `pnpm --filter @devlog/web start`; `start:next` = `next start`) |
 | `pnpm start` | Start production server (after build) |
 | `pnpm check-types` | `tsc --noEmit` across all 5 packages |
 | `pnpm lint` | ESLint 9 flat config across all packages |
@@ -171,9 +175,10 @@ pnpm dev           # Boots Next.js at http://localhost:3000
 | `pnpm test:coverage` | Vitest with coverage report |
 | `pnpm format` | Prettier write |
 | `pnpm format:check` | Prettier check |
-| `pnpm db:generate` | Drizzle Kit: generate SQL migration from schema diff |
-| `pnpm db:migrate` | Apply pending migrations |
+| `pnpm db:generate` | `drizzle-kit generate --config ./drizzle.config.ts` in `@devlog/db` (0.31) |
+| `pnpm db:migrate` | Apply pending migrations (creates `apps/web/devlog.db`) |
 | `pnpm db:seed` | Seed the dev DB from `packages/db/src/seed.ts` |
+| `pnpm db:setup` | One-shot `generate && migrate && seed` (from-scratch init) |
 | `pnpm db:studio` | Open Drizzle Studio |
 | `pnpm clean` | Remove `node_modules`, `.turbo`, build artifacts |
 | `pnpm check` | **The full quality gate:** `check-types && lint && test && build` |
@@ -313,7 +318,7 @@ The wrapper is Paramiko-based and handles the `shlex.join()` quoting bug that br
 A layer may only import from layers *below* it (higher-numbered) or from its own layer. **Violations are review-blocking.**
 
 ```
-Layer 0: proxy (apps/web/src/middleware.ts)
+Layer 0: proxy (apps/web/src/proxy.ts)
          Edge Runtime. NO database access. NO @devlog/auth (only @devlog/auth/tokens).
 
 Layer 1: app (apps/web/src/app/**)
@@ -343,7 +348,7 @@ Packages (apps/web/src/packages/**)
 - **Route handlers** at `apps/web/src/app/api/{resource}/route.ts`. Force-dynamic when stateful, default-cacheable when static.
 - **Server Actions** at `apps/web/src/features/{feature}/actions.ts`. Mark `'use server'` at the top.
 - **Zod** validates every input. Never read `FormData` or `Request.json()` without parsing through a schema.
-- **Auth checks** before any mutation. Use `verifySessionToken()` in Server Actions; `middleware.ts` handles `/admin/*` route auth.
+- **Auth checks** before any mutation. Use `await verifySessionToken()` (async since Web Crypto) in Server Actions; `proxy.ts` handles `/admin/*` route auth.
 
 ### Database / Data Layer
 
@@ -375,7 +380,7 @@ Packages (apps/web/src/packages/**)
 
 ## Anti-Patterns to Avoid
 
-- **Importing `@devlog/auth` (root) in `middleware.ts`.** It pulls `better-sqlite3` + Drizzle, which break the Edge Runtime. Import `@devlog/auth/tokens` instead.
+- **Importing `@devlog/auth` (root) in `proxy.ts`.** It pulls `better-sqlite3` + Drizzle, which break the Edge Runtime. Import `@devlog/auth/tokens` instead (pure `crypto.subtle`, async).
 - **Reading `process.env.*` directly in feature/components.** Always go through `apps/web/src/lib/env.ts`.
 - **Using `enum` or `namespace`.** `erasableSyntaxOnly: true` forbids them. Use `as const` objects + union types.
 - **Using `as any`.** Lint blocks it. Use `unknown` + narrow, or `satisfies`.
