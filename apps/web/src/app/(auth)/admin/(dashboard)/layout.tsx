@@ -1,28 +1,36 @@
 /**
- * apps/web/src/app/(auth)/admin/layout.tsx — admin shell.
+ * apps/web/src/app/(auth)/admin/(dashboard)/layout.tsx — admin shell.
  *
- * Wraps every `/admin/*` page (except `/admin/login`, which the
- * middleware allows through unauthenticated). Sidebar with:
- * Dashboard, Posts, Subscribers, Comments, Settings, Sign out.
+ * R-31 (Pass 3): this guarded shell lives inside the `(dashboard)` route
+ * group, so it wraps ONLY the authenticated admin pages (`/admin`,
+ * `/admin/posts/*`, `/admin/subscribers/*`, `/admin/comments/*`,
+ * `/admin/settings/*`). The login page (`(auth)/admin/login/`) sits
+ * OUTSIDE the group and never passes through here — URLs are unchanged
+ * (route groups don't affect paths).
+ *
+ * History: the pre-R-31 monolithic layout wrapped ALL of `/admin/*`
+ * including `/admin/login` and tried to detect the login page via a
+ * `x-pathname` request header — a header nothing ever set — so anonymous
+ * `/admin/login` visits ran `requireAuthor(undefined)` →
+ * `redirect('/admin/login?next=/admin')` forever (C-31:
+ * ERR_TOO_MANY_REDIRECTS in production).
  *
  * R-6 (audit remediation): enforces `role === 'author'` at the page-shell
- * layer. The middleware (apps/web/src/middleware.ts) only verifies the
- * session token's HMAC signature at the edge — it cannot check the role
- * because the DB-backed user lookup is not Edge-runtime-safe. This layout
- * calls `requireAuthor()` (which throws `AuthorRequiredError` for any
- * missing/invalid session or non-author role) and redirects to the login
- * page on rejection.
+ * layer. The edge `proxy.ts` only verifies the session token's HMAC
+ * signature — it cannot check the role because the DB-backed user lookup
+ * is not Edge-runtime-safe. This layout calls `requireAuthor()` (which
+ * throws `AuthorRequiredError` for any missing/invalid session or
+ * non-author role) and redirects to the login page on rejection.
  *
- * The login page bypasses this layout via the early-return pathname check
- * below — it renders just `{children}` without the sidebar.
+ * Sidebar: Dashboard, Posts, Subscribers, Comments, Settings, Sign out.
  *
- * Source: MEP §7 Phase 6 GREEN 6.4 #2 + R-6 audit remediation.
+ * Source: MEP §7 Phase 6 GREEN 6.4 #2 + R-6 + R-31.
  */
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { SignOutButton } from '@/features/auth/sign-out-button';
-import { isAuthorRequiredError, requireAuthor } from '@/lib/auth';
+import { isAuthorRequiredError, requireAuthor, SESSION_COOKIE } from '@/lib/auth';
 
 const NAV = [
   { href: '/admin', label: 'Dashboard' },
@@ -33,25 +41,15 @@ const NAV = [
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  // Login page bypasses the shell via route group nesting.
-  // We detect it by checking the headers' pathname.
-  const headers = await import('next/headers').then((m) => m.headers());
-  const pathname = headers.get('x-pathname') ?? '';
-  if (pathname === '/admin/login' || pathname.endsWith('/admin/login')) {
-    // Strip the shell on the login page; just render the children.
-    return <>{children}</>;
-  }
-
-  // R-6: enforce role === 'author' for the entire admin shell.
-  const jar = (await import('next/headers').then((m) => m.cookies()));
-  const cookieValue = jar.get('devlog_session')?.value;
+  const jar = await import('next/headers').then((m) => m.cookies());
+  // R-31/M-33: use the exported SESSION_COOKIE constant, not a hardcoded name.
+  const cookieValue = jar.get(SESSION_COOKIE)?.value;
   let user: Awaited<ReturnType<typeof requireAuthor>>;
   try {
     user = await requireAuthor(cookieValue);
   } catch (e) {
     if (isAuthorRequiredError(e)) {
-      const next = encodeURIComponent(pathname || '/admin');
-      redirect(`/admin/login?next=${next}`);
+      redirect(`/admin/login?next=${encodeURIComponent('/admin')}`);
     }
     throw e;
   }

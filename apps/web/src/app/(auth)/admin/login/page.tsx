@@ -14,7 +14,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { LoginForm } from '@/features/auth/login-form';
-import { getSession } from '@/lib/auth';
+import { getSession, SESSION_COOKIE } from '@/lib/auth';
 
 export const metadata: Metadata = {
   title: 'Admin sign in — /dev/log',
@@ -31,8 +31,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const next = sp.next ?? '/admin';
 
   // If the user already has a valid session, redirect to `next`.
+  // R-31/M-33: use the exported SESSION_COOKIE constant (was hardcoded).
   const jar = await import('next/headers').then((m) => m.cookies());
-  const existing = jar.get('devlog_session')?.value;
+  const existing = jar.get(SESSION_COOKIE)?.value;
   const user = await getSession(existing);
   if (user && user.role === 'author') {
     // We can't call redirect() in a try/catch cleanly here, but Next.js
