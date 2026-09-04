@@ -25,9 +25,12 @@
  * scrypt-hashed passwords (password.ts).
  *
  * Token format: `<payload>.<hmac-sha256>` where the HMAC is keyed
- * by `BETTER_AUTH_SECRET` (32+ bytes). The payload is opaque to
- * the verifier — callers pass their own payload (a userId, a
- * subscriberId, etc.).
+ * by the appropriate secret (32+ bytes): session tokens use
+ * `BETTER_AUTH_SECRET`; transaction tokens (`signToken`/`verifyToken` —
+ * subscribe confirm, unsubscribe, preferences) use
+ * `SIGNED_TOKEN_SECRET`, falling back to `BETTER_AUTH_SECRET` when it
+ * is unset (dev). The payload is opaque to the verifier — callers
+ * pass their own payload (a userId, a subscriberId, etc.).
  */
 
 export const SESSION_COOKIE = 'devlog_session';
@@ -52,12 +55,31 @@ function getSecret(): string {
   return s;
 }
 
-async function hmacHex(message: string): Promise<string> {
-  const secret = getSecret();
+/**
+ * R-62 (audit M-46): transaction tokens (subscribe confirm/unsubscribe/
+ * preferences) are documented as keyed by `SIGNED_TOKEN_SECRET`. Pre-R-62
+ * this var was read by nothing — every HMAC used the session secret — so
+ * rotating it invalidated nothing. Enforce the same 32-char rule in
+ * production; in dev fall back to the session secret so a single-secret
+ * dev environment keeps working.
+ */
+function getTransactionSecret(): string {
+  const s = process.env.SIGNED_TOKEN_SECRET;
+  if (s && s.length >= 32) return s;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'SIGNED_TOKEN_SECRET must be set to a value >= 32 chars in production.',
+    );
+  }
+  return getSecret();
+}
+
+async function hmacHex(message: string, secret?: string): Promise<string> {
+  const keyMaterial = secret ?? getSecret();
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw',
-    enc.encode(secret),
+    enc.encode(keyMaterial),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
@@ -118,7 +140,7 @@ export async function verifySessionToken(token: string): Promise<string | null> 
 }
 
 export async function signToken(payload: string): Promise<string> {
-  const mac = await hmacHex(payload);
+  const mac = await hmacHex(payload, getTransactionSecret());
   return `${payload}${TOKEN_SEPARATOR}${mac}`;
 }
 
@@ -129,7 +151,7 @@ export async function verifyToken(token: string, expectedPayload: string): Promi
   const receivedMac = token.slice(sep + 1);
   if (payload !== expectedPayload) return false;
   if (!isHex64(receivedMac)) return false;
-  const expectedMac = await hmacHex(payload);
+  const expectedMac = await hmacHex(payload, getTransactionSecret());
   return timingSafeEqualHex(receivedMac, expectedMac);
 }
 
