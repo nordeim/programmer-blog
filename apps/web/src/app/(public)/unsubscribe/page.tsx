@@ -96,8 +96,10 @@ export default async function UnsubscribePage({ searchParams }: UnsubscribePageP
               you&apos;re <span style={{ fontStyle: 'italic', fontWeight: 400 }}>out</span>
             </>
           ) : (
+            // R-55 (L-39): a missing/expired token is a user-input error,
+            // not a system failure — don't headline "something broke" for it.
             <>
-              something <span style={{ fontStyle: 'italic', fontWeight: 400 }}>broke</span>
+              couldn&apos;t <span style={{ fontStyle: 'italic', fontWeight: 400 }}>confirm</span>
             </>
           )}
         </h1>

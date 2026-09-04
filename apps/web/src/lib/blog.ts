@@ -78,6 +78,20 @@ export function joinTagNames(tags: Pick<Tag, 'slug' | 'name'>[]): string {
 }
 
 /**
+ * R-54 (Pass 5, L-38): removes a LEADING `# …` heading from MDX content.
+ *
+ * The post page renders its own `<h1>{post.title}</h1>` header; seeded
+ * post bodies repeated the title as a first-line `# …` heading, so the
+ * page shipped two `<h1>` elements (a11y outline + SEO defect, verified
+ * live). Only a heading on the very first line is stripped — headings
+ * after an intro paragraph are content and stay. Returns the input
+ * unchanged when there is no leading H1.
+ */
+export function stripLeadingH1(mdx: string): string {
+  return mdx.replace(/^#[^\S\n].*\n?/, '');
+}
+
+/**
  * Returns the month-name + year label used by the post-page top meta
  * (e.g. `November 2024`). Returns `'—'` when the date is missing.
  */

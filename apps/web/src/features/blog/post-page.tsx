@@ -19,7 +19,7 @@ import Link from 'next/link';
 import { Tag as TagPill } from '@/components/tag';
 import { CommentForm } from '@/features/blog/comment-form';
 import { CommentList } from '@/features/blog/comment-list';
-import { formatArchiveDate, formatLongDate, formatReadTime } from '@/lib/blog';
+import { formatArchiveDate, formatLongDate, formatReadTime, stripLeadingH1 } from '@/lib/blog';
 import { renderMDX } from '@/lib/mdx';
 
 interface PostPageProps {
@@ -51,7 +51,9 @@ export async function PostPage({
 }: PostPageProps) {
   let body: React.ReactNode;
   try {
-    body = await renderMDX(post.contentMdx);
+    // R-54 (L-38): the page header owns the single <h1>; a leading
+    // `# …` in the MDX body would render a second one.
+    body = await renderMDX(stripLeadingH1(post.contentMdx));
   } catch (err) {
     console.error('[post-page] MDX render failed for', post.slug, err);
     body = (

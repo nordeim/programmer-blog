@@ -10,6 +10,7 @@ import {
   formatRfc822Date,
   joinTagNames,
   postToArchiveItem,
+  stripLeadingH1,
 } from './blog';
 
 describe('formatArchiveDate', () => {
@@ -116,5 +117,32 @@ describe('formatRfc822Date', () => {
   it('returns a valid UTC string for null/invalid (fallback to now)', () => {
     const s = formatRfc822Date(null);
     expect(s).toMatch(/GMT$/);
+  });
+});
+
+describe('stripLeadingH1 — R-54 (L-38 double H1)', () => {
+  it('strips a leading H1 line', () => {
+    expect(stripLeadingH1('# My Title\n\nBody text.')).toBe('\nBody text.');
+  });
+
+  it('strips a bare leading H1', () => {
+    expect(stripLeadingH1('# Title')).toBe('');
+  });
+
+  it('preserves content that does not start with an H1', () => {
+    const mdx = 'Intro paragraph.\n\n# Later heading stays\n';
+    expect(stripLeadingH1(mdx)).toBe(mdx);
+  });
+
+  it('does not strip H2 headings', () => {
+    expect(stripLeadingH1('## Sub heading\nbody')).toBe('## Sub heading\nbody');
+  });
+
+  it('does not strip an H1 that is not the first line', () => {
+    expect(stripLeadingH1('\n\n# Not leading\n')).toBe('\n\n# Not leading\n');
+  });
+
+  it('leaves empty/whitespace content untouched', () => {
+    expect(stripLeadingH1('')).toBe('');
   });
 });
