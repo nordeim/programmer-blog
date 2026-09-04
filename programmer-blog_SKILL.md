@@ -8,8 +8,8 @@ description: >
   replicating the /dev/log architecture.
 version: 1.0.1
 project: devlog
-last_updated: 2026-09-03
-project_state: 272 tests green, 5 packages, Next 16.3.4 / drizzle-kit 0.31 / proxy.ts / Web Crypto, Phases 1–7 + remediation A-C complete
+last_updated: 2026-09-04
+project_state: 360 tests green (287 web + 27 db + 22 auth + 21 types + 3 email), 5 packages, Next 16.3.4 / drizzle-kit 0.31 / proxy.ts / Web Crypto, Phases 1–7 + remediation A-C + Pass 4–5 (R-37..R-56) complete
 tags:
   - documentation
   - knowledge-distillation
@@ -24,7 +24,7 @@ tags:
 
 # `/dev/log` — Programmer Blog Engineering Skill (SKILL.md)
 
-> **How to use this document:** This is the deep-dive codebase reference for `/dev/log`. Read §1–§3 before extending any feature. Read §9 + §10 when debugging. Read §11 before pushing. Read §19 + §20 when authoring or modifying design tokens / TypeScript types. All claims are verified against the actual codebase as of **2026-09-03** (Next 16.3.4 / drizzle-kit 0.31 / `proxy.ts` / Web Crypto `crypto.subtle` / `pnpm db:setup`, 272 tests, `34/34` pages).
+> **How to use this document:** This is the deep-dive codebase reference for `/dev/log`. Read §1–§3 before extending any feature. Read §9 + §10 when debugging. Read §11 before pushing. Read §19 + §20 when authoring or modifying design tokens / TypeScript types. All claims are verified against the actual codebase as of **2026-09-04** (Next 16.3.4 / drizzle-kit 0.31 / `proxy.ts` / Web Crypto `crypto.subtle` / `pnpm db:setup`, 360 tests, `34/34` pages).
 
 ---
 
@@ -996,7 +996,7 @@ curl -s http://localhost:3000/posts/<slug> | grep canonical          # prod orig
 ```bash
 pnpm check-types   # 0 errors across 5 packages
 pnpm lint          # 0 errors (3 pre-existing warnings acceptable)
-pnpm test          # 272 tests passing (229 web + 16 auth + 21 types + 3 db + 3 email)
+pnpm test          # 360 tests passing (287 web + 27 db + 22 auth + 21 types + 3 email)
 pnpm build         # 34/34 pages → apps/web/.next/standalone/apps/web/server.js (proxy.ts, Web Crypto)
 
 # Or all at once (full gate):
