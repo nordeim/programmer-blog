@@ -152,7 +152,10 @@ ensure_env() {
     local gen_pw
     gen_pw="$(openssl rand -base64 24 2>/dev/null || head -c 24 /dev/urandom | base64)"
     printf 'DEV_AUTHOR_PASSWORD=%s\n' "$gen_pw" >> "$REPO_ROOT/.env.local"
-    log "  generated DEV_AUTHOR_PASSWORD (store it now — printed once): $gen_pw"
+    # R-91 (Pass 7, L-54): never echo the credential itself — it would land
+    # in terminal scrollback and any captured deploy logs. Point at the
+    # storage location instead.
+    log "  generated DEV_AUTHOR_PASSWORD (stored in $REPO_ROOT/.env.local — store it in your secrets manager now)"
   fi
 
   # Ensure the Next.js build sees the same env regardless of cwd.

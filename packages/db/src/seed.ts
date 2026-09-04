@@ -48,16 +48,22 @@ export function resolveAuthorPassword(
   env: { NODE_ENV?: string | undefined; DEV_AUTHOR_PASSWORD?: string | undefined } = process.env,
 ): string {
   const provided = env.DEV_AUTHOR_PASSWORD;
-  if (provided && !(env.NODE_ENV === 'production' && provided === DEFAULT_DEV_AUTHOR_PASSWORD)) {
+  if (env.NODE_ENV === 'production') {
+    // R-92 (Pass 7, L-55): R-57 rejected only the exact public default —
+    // a 10-char password from the deploy env sailed through. Production
+    // credentials need a real strength floor.
+    if (!provided || provided === DEFAULT_DEV_AUTHOR_PASSWORD || provided.length < 16) {
+      throw new Error(
+        '[seed] Refusing to seed a production database with a weak or publicly-known author password.\n' +
+          '  Set DEV_AUTHOR_PASSWORD to a strong unique value (at least 16 chars) in the deploy environment, e.g.:\n' +
+          '    DEV_AUTHOR_PASSWORD="$(openssl rand -base64 24)" pnpm db:seed\n' +
+          '  `bash start_server.sh` does this automatically when the var is absent.',
+      );
+    }
     return provided;
   }
-  if (env.NODE_ENV === 'production') {
-    throw new Error(
-      '[seed] Refusing to seed a production database with a publicly-known author password.\n' +
-        '  Set DEV_AUTHOR_PASSWORD to a strong unique value in the deploy environment, e.g.:\n' +
-        '    DEV_AUTHOR_PASSWORD="$(openssl rand -base64 24)" pnpm db:seed\n' +
-        '  `bash start_server.sh` does this automatically when the var is absent.',
-    );
+  if (provided) {
+    return provided;
   }
   return DEFAULT_DEV_AUTHOR_PASSWORD;
 }

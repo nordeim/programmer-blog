@@ -67,6 +67,26 @@ describe('resolveAuthorPassword (R-57, audit C-38)', () => {
   });
 });
 
+describe('resolveAuthorPassword — R-92 (Pass 7, L-55) prod strength floor', () => {
+  it('rejects a production DEV_AUTHOR_PASSWORD shorter than 16 chars', () => {
+    expect(() =>
+      resolveAuthorPassword({ NODE_ENV: 'production', DEV_AUTHOR_PASSWORD: 'short12pw' }),
+    ).toThrowError(/at least 16/);
+  });
+
+  it('accepts a 16+ char production password', () => {
+    expect(
+      resolveAuthorPassword({ NODE_ENV: 'production', DEV_AUTHOR_PASSWORD: 'x'.repeat(16) }),
+    ).toBe('x'.repeat(16));
+  });
+
+  it('dev keeps no minimum (any non-default value wins)', () => {
+    expect(
+      resolveAuthorPassword({ NODE_ENV: 'development', DEV_AUTHOR_PASSWORD: 'abc' }),
+    ).toBe('abc');
+  });
+});
+
 describe('drizzle schema sanity', () => {
   it('defines all expected tables', () => {
     const tableNames = Object.keys(schema).filter((k) => !k.startsWith('_') && !['default', 'sql'].includes(k));
