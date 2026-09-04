@@ -22,7 +22,6 @@
     "@react-email/render": "^1.4.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-email": "^3.0.7",
     "resend": "^4.8.0"
   },
   "devDependencies": {

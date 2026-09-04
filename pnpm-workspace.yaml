@@ -2,8 +2,13 @@ packages:
   - 'apps/*'
   - 'packages/*'
 
-# pnpm 9.15+ / 10+ reads overrides from here, not from package.json#pnpm.overrides.
-# Moved from package.json to silence: “The \"pnpm\" field in package.json is no longer read”.
+# pnpm reads workspace-level `overrides` ONLY from pnpm 10.0.0 onwards.
+# Under the pinned pnpm 9.15.4 these entries are INERT — the 9.x-compatible
+# location is `package.json#pnpm.overrides`. Kept for a future pnpm 10
+# upgrade; do not rely on them while `packageManager` is 9.15.4.
+# (R-95, audit C-42: these pins were silently inert when added — the
+# react-email subtree they targeted is now removed from dependencies
+# entirely, which is what actually cleared the audit.)
 overrides:
   "react-email>next": "^16.0.0"
   vitest: "^3.2.6"
