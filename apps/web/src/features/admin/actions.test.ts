@@ -154,6 +154,28 @@ describe('siteSettingsInputSchema', () => {
   // R-65 (audit L-40): z.string().url() accepts `javascript:` and other
   // schemes. Social URLs must be http(s) so they can never become
   // script sources if a render sink is added later.
+  it('rssUrl accepts the seeded site-relative value (R-87)', () => {
+    // The seed writes rss = '/rss.xml'; R-65's absolute-URL guard made
+    // every settings save of that untouched seed value fail.
+    const r = siteSettingsInputSchema.safeParse({
+      authorName: 'Alex',
+      authorBio: 'Bio.',
+      defaultSeoDescription: 'Desc.',
+      rssUrl: '/rss.xml',
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rssUrl still rejects an off-site-relative path like ../etc (R-87)', () => {
+    const r = siteSettingsInputSchema.safeParse({
+      authorName: 'Alex',
+      authorBio: 'Bio.',
+      defaultSeoDescription: 'Desc.',
+      rssUrl: '../etc/passwd',
+    });
+    expect(r.success).toBe(false);
+  });
+
   it.each(['githubUrl', 'twitterUrl', 'rssUrl'])(
     'rejects a javascript: scheme for %s (R-65)',
     (field) => {

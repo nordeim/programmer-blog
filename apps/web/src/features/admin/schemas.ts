@@ -29,6 +29,20 @@ const httpUrl = () =>
     .url()
     .refine((v) => /^https?:\/\//i.test(v), 'Must be an http(s) URL');
 
+/**
+ * R-87 (Pass 7, L-50): the RSS field may be a site-relative path starting
+ * with '/' — the seed ships '/rss.xml', and R-65's absolute-URL guard made
+ * every settings save of that untouched seed value fail. Off-site-relative
+ * paths ('../…') stay rejected; social URLs remain absolute-only.
+ */
+const rssUrlValue = () =>
+  z
+    .string()
+    .refine(
+      (v) => /^https?:\/\//i.test(v) || v.startsWith('/'),
+      'Must be an http(s) URL or a site-relative path starting with "/".',
+    );
+
 export const moderateCommentInputSchema = z.object({
   commentId: z.string().min(1),
   action: z.enum(['approve', 'spam', 'delete']),
@@ -43,7 +57,7 @@ export const siteSettingsInputSchema = z.object({
   defaultOgImageUrl: httpUrl().optional().or(z.literal('')),
   githubUrl: httpUrl().optional().or(z.literal('')),
   twitterUrl: httpUrl().optional().or(z.literal('')),
-  rssUrl: httpUrl().optional().or(z.literal('')),
+  rssUrl: rssUrlValue().optional().or(z.literal('')),
   emailUrl: z.string().email().optional().or(z.literal('')),
 });
 export type SiteSettingsInput = z.infer<typeof siteSettingsInputSchema>;
