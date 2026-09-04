@@ -87,10 +87,11 @@ const config = [
     },
   },
   {
-    // mdx.ts uses dangerouslySetInnerHTML via next-mdx-remote's serialize.
+    // mdx.tsx no longer uses dangerouslySetInnerHTML (kept in the list as
+    // documentation until the override can be re-scoped — R-68/audit L-43).
     // layout.tsx uses dangerouslySetInnerHTML for the inline theme-sync script.
     // json-ld.tsx uses dangerouslySetInnerHTML for SEO JSON-LD blobs (server-controlled data, not user-submitted).
-    files: ['src/lib/mdx.ts', 'src/app/layout.tsx', 'src/components/json-ld.tsx'],
+    files: ['src/app/layout.tsx', 'src/components/json-ld.tsx'],
     rules: {
       'react/no-danger': 'off',
     },

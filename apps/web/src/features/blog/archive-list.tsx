@@ -8,8 +8,8 @@
  * Empty state: a small monospace "no posts match" row, consistent with
  * the rest of the `/dev/log` aesthetic.
  */
-import { ArchiveItem } from '@/features/landing/archive-item';
-import type { ArchiveItemData } from '@/features/landing/archive-preview';
+import { ArchiveItem } from '@/components/archive-item';
+import type { ArchiveItemData } from '@/domain/archive';
 
 
 interface ArchiveListProps {

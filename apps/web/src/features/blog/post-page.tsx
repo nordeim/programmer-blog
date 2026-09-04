@@ -22,6 +22,8 @@ import { CommentList } from '@/features/blog/comment-list';
 import { formatArchiveDate, formatLongDate, formatReadTime, stripLeadingH1 } from '@/lib/blog';
 import { renderMDX } from '@/lib/mdx';
 
+import { defaultMDXComponents } from './mdx-components';
+
 interface PostPageProps {
   post: Pick<
     Post,
@@ -53,7 +55,9 @@ export async function PostPage({
   try {
     // R-54 (L-38): the page header owns the single <h1>; a leading
     // `# …` in the MDX body would render a second one.
-    body = await renderMDX(stripLeadingH1(post.contentMdx));
+    // R-63: the MDX component map is injected by the call site — lib/ no
+    // longer imports it from features/ (layer inversion, audit M-47).
+    body = await renderMDX(stripLeadingH1(post.contentMdx), { components: defaultMDXComponents });
   } catch (err) {
     console.error('[post-page] MDX render failed for', post.slug, err);
     body = (

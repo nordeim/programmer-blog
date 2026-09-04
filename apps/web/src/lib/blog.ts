@@ -6,7 +6,7 @@
  */
 import type { Post, Tag } from '@devlog/db';
 
-import type { ArchiveItemData } from '@/features/landing/archive-preview';
+import type { ArchiveItemData } from '@/domain/archive';
 
 const MONTHS = [
   'Jan',

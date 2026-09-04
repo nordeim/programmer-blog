@@ -1,28 +1,45 @@
 /**
- * apps/web/src/lib/mdx.ts — MDX rendering helper (PAD §3.3 Pattern 5).
+ * apps/web/src/lib/mdx.tsx — MDX rendering helper (PAD §3.3 Pattern 5).
  *
  * Renders an MDX string to React using `next-mdx-remote/rsc`. Applies
- * Shiki syntax highlighting via `@shikijs/rehype`, slugifies headings
- * via `rehype-slug`, and autolinks headings via `rehype-autolink-headings`.
+ * slugified + autolinked headings via `rehype-slug` +
+ * `rehype-autolink-headings`.
  *
  * Server-only (uses React Server Components). The returned value can
  * be embedded directly inside a server component's JSX.
  *
- * On error (invalid MDX, malformed), returns a branded fallback block
- * so the post page still renders. The error is logged for the admin.
+ * R-63 (audit M-47): the component map is a REQUIRED parameter — the
+ * previous default import from `@/features/blog/mdx-components` made
+ * this Layer-4 file import UP into Layer 2, creating a feature↔lib
+ * cycle. Call sites (features/blog/post-page.tsx, the snippet route)
+ * pass `defaultMDXComponents` explicitly.
+ *
+ * On error (invalid MDX, malformed), callers catch and fall back to a
+ * branded plain-text block so the page still renders.
  */
 import 'server-only';
 
 import { MDXRemote } from 'next-mdx-remote/rsc';
-import type { ComponentType } from 'react';
 import rehypeAutolinkHeadings from 'rehype-autolink-headings';
 import rehypeSlug from 'rehype-slug';
 
-import { defaultMDXComponents } from '@/features/blog/mdx-components';
+/**
+ * The exact component-map type `MDXRemote` accepts. Reusing the
+ * library's own prop type (rather than a hand-rolled
+ * `Record<string, ComponentType<unknown>>`) keeps the map assignable
+ * in both directions with no casts and no `as never` laundering
+ * (R-68): intrinsic overrides like `pre: PreBlock` are accepted
+ * exactly as the renderer expects them.
+ */
+type MdxRemoteComponents = NonNullable<React.ComponentProps<typeof MDXRemote>['components']>;
+
+export type MdxComponentMap = MdxRemoteComponents;
 
 export interface MdxRenderOptions {
-  /** Override the component map (e.g. to inject a per-post CodeMirror instance). */
-  components?: Record<string, ComponentType<unknown> | 'a' | 'pre' | 'img'>;
+  /** The MDX component map (e.g. `defaultMDXComponents` from features/blog). */
+  components: MdxComponentMap;
+  /** Override individual components on top of `components`. */
+  overrides?: MdxComponentMap;
 }
 
 /**
@@ -30,18 +47,12 @@ export interface MdxRenderOptions {
  * a server component. Throws on parse error — callers should catch and
  * fall back to a plain-text preview.
  */
-export async function renderMDX(
-  source: string,
-  _opts: MdxRenderOptions = {},
-): Promise<React.ReactElement> {
-  const components = { ...defaultMDXComponents, ..._opts.components } as Record<
-    string,
-    ComponentType<unknown>
-  >;
+export async function renderMDX(source: string, opts: MdxRenderOptions): Promise<React.ReactElement> {
+  const merged: MdxComponentMap = { ...opts.components, ...opts.overrides };
   return (
     <MDXRemote
       source={source}
-      components={components as never}
+      components={merged}
       options={{
         mdxOptions: {
           rehypePlugins: [

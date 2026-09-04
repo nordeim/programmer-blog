@@ -11,9 +11,12 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import { defaultMDXComponents } from '@/features/blog/mdx-components';
+import { stripLeadingH1 } from '@/lib/blog';
 import { env } from '@/lib/env';
 import { renderMDX } from '@/lib/mdx';
 import { getSnippetBySlug, listSnippets } from '@/lib/snippets';
+
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,80}[a-z0-9])?$/;
 
@@ -63,7 +66,10 @@ export default async function SnippetRoute({
 
   let body: React.ReactNode;
   try {
-    body = await renderMDX(snippet.content);
+    // R-63: component map injected by the call site (M-47 layer fix).
+    // R-64 (M-48): strip the MDX body's leading `# …` so the page keeps
+    // its single <h1> (same contract as post pages since R-54).
+    body = await renderMDX(stripLeadingH1(snippet.content), { components: defaultMDXComponents });
   } catch (err) {
     console.error('[snippet-route] MDX render failed for', slug, err);
     body = (
