@@ -52,6 +52,16 @@ export interface SessionUser {
 }
 
 /**
+ * R-96 (Pass 8, H-43): pre-generated scrypt hash in the standard
+ * `scrypt:N:r:p:salt:hash` format, of an unrelated throwaway secret.
+ * Consumed only by the sign-in rejection branches so that an unknown
+ * email costs the same scrypt work (N=2^15, r=8, p=1) as a wrong
+ * password — see the comment in `signIn` below.
+ */
+const TIMING_EQUALIZER_HASH =
+  'scrypt:32768:8:1:fd76515d926b70155f1470447bd94c8c:a2a4d722fe2bb220052d46e9f0c2b39359710fbe60aca44f29a6f2981523e05bcede327535eb6e1e824add102e434e04dc3a4df3819630eca2c7cd0eebe00071';
+
+/**
  * Attempt to sign a user in by email + password. Returns `{ ok, user? }`
  * on success. Sets the session cookie via the `cookie` callback param
  * (since this runs in a server action context where we don't have
@@ -81,10 +91,17 @@ export async function signIn(
     // Same error message for "no user" and "wrong password" — prevents
     // user enumeration via the login form.
     const genericError = 'Invalid email or password.';
-    if (!user) {
-      return { ok: false, error: genericError };
-    }
-    if (user.role !== 'author') {
+    // R-96 (Pass 8, H-43): a known email + wrong password runs scrypt
+    // N=2^15 (~100ms) while an unknown email used to return before any
+    // scrypt work — a response-time delta that distinguishes valid
+    // author emails (OWASP authentication-failure enumeration). Both
+    // "fail fast" branches below first run a REAL scrypt verification
+    // against this pre-generated constant hash so every rejected sign-in
+    // does comparable work before returning the same generic error.
+    // The hash is of an unrelated throwaway secret — it never validates
+    // anything; it only equalizes the work factor.
+    if (!user || user.role !== 'author') {
+      verifyPassword(password, TIMING_EQUALIZER_HASH);
       return { ok: false, error: genericError };
     }
     if (!user.passwordHash || !verifyPassword(password, user.passwordHash)) {
