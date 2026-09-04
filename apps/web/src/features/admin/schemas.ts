@@ -17,6 +17,18 @@
  */
 import { z } from 'zod';
 
+/**
+ * R-65 (audit L-40): `z.string().url()` happily accepts `javascript:`,
+ * `data:` and other schemes. These fields are stored as social/SEO URLs
+ * — if any future render sink emits them as `href`s, a non-http(s)
+ * scheme becomes stored XSS. Constrain to http(s) at the boundary.
+ */
+const httpUrl = () =>
+  z
+    .string()
+    .url()
+    .refine((v) => /^https?:\/\//i.test(v), 'Must be an http(s) URL');
+
 export const moderateCommentInputSchema = z.object({
   commentId: z.string().min(1),
   action: z.enum(['approve', 'spam', 'delete']),
@@ -26,12 +38,12 @@ export type ModerateCommentInput = z.infer<typeof moderateCommentInputSchema>;
 export const siteSettingsInputSchema = z.object({
   authorName: z.string().trim().min(1).max(100),
   authorBio: z.string().trim().min(1).max(500),
-  authorAvatarUrl: z.string().url().optional().or(z.literal('')),
+  authorAvatarUrl: httpUrl().optional().or(z.literal('')),
   defaultSeoDescription: z.string().trim().min(1).max(300),
-  defaultOgImageUrl: z.string().url().optional().or(z.literal('')),
-  githubUrl: z.string().url().optional().or(z.literal('')),
-  twitterUrl: z.string().url().optional().or(z.literal('')),
-  rssUrl: z.string().url().optional().or(z.literal('')),
+  defaultOgImageUrl: httpUrl().optional().or(z.literal('')),
+  githubUrl: httpUrl().optional().or(z.literal('')),
+  twitterUrl: httpUrl().optional().or(z.literal('')),
+  rssUrl: httpUrl().optional().or(z.literal('')),
   emailUrl: z.string().email().optional().or(z.literal('')),
 });
 export type SiteSettingsInput = z.infer<typeof siteSettingsInputSchema>;

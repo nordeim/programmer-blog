@@ -150,6 +150,46 @@ describe('siteSettingsInputSchema', () => {
     });
     expect(r.success).toBe(false);
   });
+
+  // R-65 (audit L-40): z.string().url() accepts `javascript:` and other
+  // schemes. Social URLs must be http(s) so they can never become
+  // script sources if a render sink is added later.
+  it.each(['githubUrl', 'twitterUrl', 'rssUrl'])(
+    'rejects a javascript: scheme for %s (R-65)',
+    (field) => {
+      const r = siteSettingsInputSchema.safeParse({
+        authorName: 'Alex',
+        authorBio: 'Engineer.',
+        defaultSeoDescription: 'desc',
+        [field]: 'javascript:alert(1)',
+      });
+      expect(r.success).toBe(false);
+    },
+  );
+
+  it.each(['githubUrl', 'twitterUrl', 'rssUrl'])(
+    'rejects a data: scheme for %s (R-65)',
+    (field) => {
+      const r = siteSettingsInputSchema.safeParse({
+        authorName: 'Alex',
+        authorBio: 'Engineer.',
+        defaultSeoDescription: 'desc',
+        [field]: 'data:text/html,<b>x</b>',
+      });
+      expect(r.success).toBe(false);
+    },
+  );
+
+  it('still accepts https and http social URLs (R-65)', () => {
+    const r = siteSettingsInputSchema.safeParse({
+      authorName: 'Alex',
+      authorBio: 'Engineer.',
+      defaultSeoDescription: 'desc',
+      githubUrl: 'https://github.com/nordeim',
+      twitterUrl: 'http://twitter.com/devlog',
+    });
+    expect(r.success).toBe(true);
+  });
 });
 
 describe('createPost', () => {
