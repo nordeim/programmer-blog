@@ -174,6 +174,24 @@ export async function updatePost(
   const data = parsed.data;
 
   try {
+    // R-83 (Pass 7, L-46): reject a slug that collides with a DIFFERENT
+    // post (createPost has the same check; updatePost was missing it, so
+    // a collision surfaced as a raw SQLite constraint error -> generic
+    // "Server error." instead of a field error).
+    if (data.slug) {
+      const slugOwner = db
+        .select({ id: schema.posts.id })
+        .from(schema.posts)
+        .where(eq(schema.posts.slug, data.slug))
+        .limit(1)
+        .get();
+      if (slugOwner && slugOwner.id !== postId) {
+        return fail('A post with that slug already exists.', {
+          slug: 'Slug already taken.',
+        });
+      }
+    }
+
     const updates: Record<string, unknown> = { updatedAt: new Date() };
     if (data.title) updates.title = data.title;
     if (data.slug) updates.slug = data.slug;
@@ -193,6 +211,12 @@ export async function updatePost(
           .limit(1)
           .get();
         updates.publishedAt = existing?.publishedAt ?? new Date();
+      }
+      // R-83 (Pass 7, L-46): the schema documents publishedAt as set only
+      // while published — returning a post to draft must clear it, or the
+      // next re-publish silently resurrects the stale date.
+      if (data.status === 'draft') {
+        updates.publishedAt = null;
       }
     }
     if (data.publishedAt) updates.publishedAt = new Date(data.publishedAt);

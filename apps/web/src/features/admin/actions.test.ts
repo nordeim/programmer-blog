@@ -266,6 +266,36 @@ describe('updatePost / deletePost / moderateComment / updateSiteSettings', () =>
     expect(updateSpy).toHaveBeenCalled();
   });
 
+  it('updatePost nulls publishedAt when a post returns to draft (R-83)', async () => {
+    requireAuthorSpy.mockResolvedValue({ id: 'u1' });
+    selectSpy.mockReturnValue(undefined); // no conflicting slug
+
+    await updatePost('p1', { status: 'draft' });
+
+    const setPayload = updateSpy.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(setPayload.status).toBe('draft');
+    expect(setPayload.publishedAt).toBeNull();
+  });
+
+  it('updatePost rejects a slug that collides with a DIFFERENT post (R-83)', async () => {
+    requireAuthorSpy.mockResolvedValue({ id: 'u1' });
+    selectSpy.mockReturnValue({ id: 'other-post' }); // slug owned by another post
+
+    const r = await updatePost('p1', { slug: 'taken-slug' });
+
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/slug/i);
+  });
+
+  it('updatePost allows re-saving the same slug for the same post (R-83)', async () => {
+    requireAuthorSpy.mockResolvedValue({ id: 'u1' });
+    selectSpy.mockReturnValue({ id: 'p1' }); // the post being edited itself
+
+    const r = await updatePost('p1', { slug: 'same-slug' });
+
+    expect(r.ok).toBe(true);
+  });
+
   it('deletePost fails when not author', async () => {
     requireAuthorSpy.mockImplementation(() => {
       throw new Error('AUTHOR_REQUIRED');
