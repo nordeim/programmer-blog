@@ -19,16 +19,17 @@ import 'server-only';
 import { calculateReadTime, postInputSchema, slugify } from '@devlog/types';
 import { eq } from 'drizzle-orm';
 import { cookies } from 'next/headers';
-import { z } from 'zod';
 
 
 import { SESSION_COOKIE, isAuthorRequiredError, requireAuthor } from '@/lib/auth';
 import { db, schema } from '@/lib/db';
 
-// R-18: the schema now lives in @devlog/types (single source of truth,
-// shared with future writers). Re-export for the existing tests.
-export { postInputSchema };
-export type PostInput = import('@devlog/types').PostInput;
+// R-18: the post schema lives in @devlog/types (single source of truth).
+// R-48: non-async re-exports (`export { postInputSchema }`) are illegal in
+// 'use server' files — they make the Server Actions loader throw at module
+// evaluation and take every action in the file down (audit C-37). Importers
+// must use '@devlog/types' directly; admin schemas live in './schemas'.
+import { moderateCommentInputSchema, siteSettingsInputSchema } from './schemas';
 
 export interface AdminSuccess {
   ok: true;
@@ -234,12 +235,6 @@ export async function deletePost(postId: string): Promise<AdminResult> {
   }
 }
 
-export const moderateCommentInputSchema = z.object({
-  commentId: z.string().min(1),
-  action: z.enum(['approve', 'spam', 'delete']),
-});
-export type ModerateCommentInput = z.infer<typeof moderateCommentInputSchema>;
-
 export async function moderateComment(input: unknown): Promise<AdminResult> {
   try {
     await requireAuthorFromCookie();
@@ -263,19 +258,6 @@ export async function moderateComment(input: unknown): Promise<AdminResult> {
     return fail('Server error.');
   }
 }
-
-export const siteSettingsInputSchema = z.object({
-  authorName: z.string().trim().min(1).max(100),
-  authorBio: z.string().trim().min(1).max(500),
-  authorAvatarUrl: z.string().url().optional().or(z.literal('')),
-  defaultSeoDescription: z.string().trim().min(1).max(300),
-  defaultOgImageUrl: z.string().url().optional().or(z.literal('')),
-  githubUrl: z.string().url().optional().or(z.literal('')),
-  twitterUrl: z.string().url().optional().or(z.literal('')),
-  rssUrl: z.string().url().optional().or(z.literal('')),
-  emailUrl: z.string().email().optional().or(z.literal('')),
-});
-export type SiteSettingsInput = z.infer<typeof siteSettingsInputSchema>;
 
 export async function updateSiteSettings(input: unknown): Promise<AdminResult> {
   try {

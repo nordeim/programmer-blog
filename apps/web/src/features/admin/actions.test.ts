@@ -90,11 +90,11 @@ import {
   createPost,
   deletePost,
   moderateComment,
-  postInputSchema,
-  siteSettingsInputSchema,
   updatePost,
   updateSiteSettings,
 } from './actions';
+import { postInputSchema } from '@devlog/types';
+import { siteSettingsInputSchema } from './schemas';
 
 describe('postInputSchema', () => {
   it('accepts a valid draft', () => {

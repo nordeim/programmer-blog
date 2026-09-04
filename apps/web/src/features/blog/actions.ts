@@ -18,32 +18,17 @@
 
 import 'server-only';
 
+import { createCommentInputSchema } from '@devlog/types';
 import { and, eq } from 'drizzle-orm';
 import { headers } from 'next/headers';
-import { z } from 'zod';
 
 import { db, schema } from '@/lib/db';
 import { rateLimit } from '@/lib/rate-limit';
 import { getClientIpFromHeaders } from '@/lib/request-ip';
 
 const COMMENT_RATE_LIMIT_PER_HOUR = 10;
-const MAX_BODY_LENGTH = 2000;
-const MIN_BODY_LENGTH = 3;
 
-export const createCommentInputSchema = z.object({
-  postId: z.string().min(1, 'postId is required.'),
-  body: z
-    .string()
-    .trim()
-    .min(MIN_BODY_LENGTH, `Comment must be at least ${MIN_BODY_LENGTH} characters.`)
-    .max(MAX_BODY_LENGTH, `Comment must be at most ${MAX_BODY_LENGTH} characters.`),
-  parentId: z.string().optional(),
-  // Anonymous fallback fields — Phase 6 swaps these for the session.
-  authorName: z.string().trim().min(1).max(80).optional().default('anonymous'),
-  authorEmail: z.string().email().optional(),
-});
-
-export type CreateCommentInput = z.infer<typeof createCommentInputSchema>;
+export type CreateCommentInput = import('@devlog/types').CreateCommentInput;
 
 export interface CreateCommentSuccess {
   ok: true;

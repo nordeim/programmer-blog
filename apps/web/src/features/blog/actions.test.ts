@@ -73,7 +73,8 @@ vi.mock('next/headers', () => ({
     }),
 }));
 
-import { createComment, createCommentInputSchema } from './actions';
+import { createComment } from './actions';
+import { createCommentInputSchema } from '@devlog/types';
 
 describe('createCommentInputSchema', () => {
   it('requires postId and body', () => {
