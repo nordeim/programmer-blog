@@ -120,8 +120,8 @@ describe("'use server' files export only async functions — R-48 / C-37", () =>
           }
           continue;
         }
-        const kind = exportMatch[1];
-        const name = exportMatch[2];
+        const kind = exportMatch[1] ?? '';
+        const name = exportMatch[2] ?? '';
         if (kind === 'async function') continue; // the only legal value export
         if (kind === 'function') {
           // `export function foo()` — synchronous function: illegal as a value export.
