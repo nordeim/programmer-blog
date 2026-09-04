@@ -1065,3 +1065,71 @@ After P1–P5 are complete and all gates are green, the agent will:
 **Deferred to the operator (cannot be done from the repo):** redeploy with `DATABASE_PATH` pointing at a migrated+seeded SQLite file; set `NEXT_PUBLIC_SITE_URL=https://programmer-blog.jesspete.shop/`; rotate/set `DEV_AUTHOR_PASSWORD` (or rely on R-37 gating) before the next production boot; rotate `docs/ssh-key.txt` (carried from L-31).
 
 *End of Pass 4 remediation plan.*
+
+---
+
+## 11. Pass 5 (2026-09-04) — Live E2E verification of the remediated deployment (R-48..R-56)
+
+**Trigger:** the Pass 4 remediated codebase was redeployed to `https://programmer-blog.jesspete.shop/`. A fresh browser E2E pass (`agent-browser`, Playwright-class) verified every Pass 4 fix live (R-31, R-34, R-37, R-38, R-39 headers, feeds with 9 items, prod URLs in sitemap/RSS, security headers) — and uncovered a new tier of defects that only surface on a deployment with a **working, seeded database**, plus a Next.js 16 server-action contract break invisible to the unit suite.
+
+**Method:** hybrid per `e2e-testing-lessons` skill — browser E2E against live + local repro (dev server, seeded SQLite), then root-cause in code. Full evidence matrix in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 5 Addendum".
+
+### Findings (severity-ranked)
+
+| ID | Sev | Finding | Root cause (code pointer) |
+|---|---|---|---|
+| C-37 | Critical | **All 6 server-action mutations 500 in production**: `createComment`, `createPost`, `updatePost`, `deletePost`, `moderateComment`, `updateSiteSettings`. React error #441 client-side; `POST /posts/[slug]` → 500 live; all four admin mutations repro 500 locally. | `features/blog/actions.ts` exports `createCommentInputSchema` (a Zod object) and `features/admin/actions.ts` exports `moderateCommentInputSchema` + `siteSettingsInputSchema` from `'use server'` files. Next.js 16 permits **only async function exports** — module evaluation throws `A "use server" file can only export async functions, found object.` at action-call time. |
+| H-37 | High | `canonical`, `og:url`, `og:image` serve `http://localhost:3000` on prerendered pages (post pages, `/admin/login`) while sitemap/RSS advertise the prod domain. | `posts/[slug]` uses `generateStaticParams` (build-time SSG, no `revalidate`) — the build machine's env (without `NEXT_PUBLIC_SITE_URL`) is baked into the prerendered metadata. Sitemap/RSS self-heal via `revalidate=3600`; prerendered pages never do. |
+| H-38 | High | Archive tag filter offers **dead filters**: `?tag=rust` / `typescript` / `go` → "0 essays" (dropdown lists all 12 tag rows). | `getAllTags()` returns every `tags` row without checking attachment to published posts. |
+| M-40 | Medium | Every archive row shows "Uncategorised" (landing page shows real tags from mockup fallback data). | `archive/page.tsx` passes a hardcoded `[]` tags array to `postToArchiveItem` ("tags-per-row dropped for v1"). |
+| M-41 | Medium | `robots.txt` advertises `Sitemap: http://localhost:3000/sitemap.xml` (verified live) for up to 24h after deploy. | robots route is `force-static` + `revalidate = 86400` — prerendered with build-time env. |
+| M-42 | Medium | Mobile (390px) horizontal scroll — `scrollWidth` 484 vs 390. | Snippet-showcase grid children (`lg:col-span-4`/`lg:col-span-8`) lack `min-w-0`; the `.code-window pre` block (`white-space: pre`) contributes a 460px min-content width that inflates the single-column track. Mockup + port both affected. |
+| L-38 | Low | Two `<h1>` elements on post pages (page header + MDX body's leading `# …`). | Seed `contentMdx` starts with `# Title`; render pipeline does not strip it. |
+| L-39 | Low | `/unsubscribe` without a token headlines "**something broke**" for a user-input error. | Page error state conflates missing token with system failure. |
+
+**False alarm cleared during testing:** invalid login *does* render "Invalid email or password." via `[data-testid=login-error]` (an earlier truncated snapshot suggested otherwise). Subscribe validation, rate limits and the auth action file are healthy.
+
+### Remediation tasks
+
+| Task | Fix | TDD plan | Status |
+|---|---|---|---|
+| R-48 | 'use server' files export only async functions: delete the local `createCommentInputSchema` from `features/blog/actions.ts` and import the canonical schema from `@devlog/types` (already exists, R-18); move `moderateCommentInputSchema` + `siteSettingsInputSchema` to a plain `features/admin/schemas.ts`; update tests. Add a **source-scan regression test** (`use-server-exports-scan.test.ts`) asserting no non-async exports in any `'use server'` file. | RED: scan test fails on current sources. GREEN: moves pass the scan; live-repro comment POST returns 200. | ✅ Complete |
+| R-49 | Prerendered pages self-heal their metadata: `export const revalidate = 3600` on `posts/[slug]/page.tsx` and `/admin/login/page.tsx`. Operator checklist (R-56) gains "build with `NEXT_PUBLIC_SITE_URL` set". | RED: module-contract test asserting the revalidate exports (source scan). GREEN: exports present. | ✅ Complete |
+| R-50 | Tags dropdown only offers tags in use: new `getTagsInUse()` query (DISTINCT tags joined to published posts via postsToTags); archive page consumes it. | RED: `queries.test.ts` integration test — an unused tag must not be returned. GREEN. | ✅ Complete |
+| R-51 | Archive rows show real tags: new `getTagsForPosts(postIds)` batch query (single `IN` query, no N+1); archive page maps `postToArchiveItem(post, tags)`. | RED: integration test for grouped tags + archive page test asserting the tag name renders. GREEN. | ✅ Complete |
+| R-52 | robots.txt revalidates like the feeds: `revalidate = 86400` → `3600`. | RED: module-contract test asserting the route's revalidate. GREEN. | ✅ Complete |
+| R-53 | Mobile overflow fix, **mockup-first**: `landing_page_mockup.html` grid children gain `min-w-0` and a `.code-window pre { overflow-x: auto; }` rule; port 1:1 to `snippet-showcase.tsx` + `globals.css`. | RED: component test asserting `min-w-0` classes on the grid children + CSS rule present in both files. GREEN. | ✅ Complete |
+| R-54 | Single H1 on post pages: pure `stripLeadingH1()` helper in `lib/blog.ts` applied to the MDX body render. | RED: unit tests for the helper (leading H1 stripped, non-leading preserved, no-H1 untouched) + post-page render test asserting exactly one `<h1>`. GREEN. | ✅ Complete |
+| R-55 | Unsubscribe error copy: missing/invalid token renders a calm "couldn't confirm that unsubscribe link" state (keeps `$ <error>` line); success state unchanged. | RED: render test asserting the "something broke" headline no longer appears for the missing-token state. GREEN. | ✅ Complete |
+| R-56 | Docs sync: this §11; audit report Pass 5 addendum; AGENTS/CLAUDE/README/SKILL updates (new anti-pattern AP-14, lesson L25, deploy checklist build-time env, test counts). | Docs diff review. | ✅ Complete |
+
+### Validation of this plan against the codebase (pre-execution)
+
+- `packages/types/src/comment.ts:16` already exports the canonical `createCommentInputSchema` (R-18) — the blog action can dedupe onto it. Confirmed.
+- The admin schemas' only consumers are `features/admin/actions.test.ts` imports — safe to relocate. Confirmed.
+- `packages/db/src/queries.test.ts` runs against a real SQLite file with fixtures (posts a/b/c, a `rust` tag) — new query tests slot in. Confirmed.
+- `apps/web/src/session-cookie-scan.test.ts` provides the source-scan pattern to imitate. Confirmed.
+- Mockup grid children at `landing_page_mockup.html:777-799`; port at `snippet-showcase.tsx:66`. Confirmed.
+- Login page metadata is static (`(auth)/admin/login/page.tsx:19`); canonical inherits layout `metadataBase`. `revalidate` export is the minimal self-heal. Confirmed.
+
+**Acceptance gate:** full `pnpm check` green; live-repro of a comment POST + admin mutations returns 200 locally; `rg "createCommentInputSchema" apps/web/src/features/blog/actions.ts` → 0 hits; archive rows render tag names; mobile viewport `scrollWidth == clientWidth`; docs updated.
+
+### Pass 5 completion status
+
+| Task | Finding(s) | Status |
+|---|---|---|
+| R-48 async-only 'use server' exports + source-scan test | C-37 | ✅ Complete |
+| R-49 hourly revalidate on prerendered URL-bearing pages | H-37 | ✅ Complete |
+| R-50 getTagsInUse() filter dropdown | H-38 | ✅ Complete |
+| R-51 getTagsForPosts() archive rows | M-40 | ✅ Complete |
+| R-52 robots.txt hourly revalidate | M-41 | ✅ Complete |
+| R-53 min-w-0 + scrollable pre (mockup-first) | M-42 | ✅ Complete |
+| R-54 stripLeadingH1() single H1 | L-38 | ✅ Complete |
+| R-55 unsubscribe error copy | L-39 | ✅ Complete |
+| R-56 docs sync (this §11, audit Pass 5 addendum, AGENTS/CLAUDE/README/SKILL) | — | ✅ Complete |
+
+**Verification evidence:** `pnpm check-types` 0 errors; `pnpm lint` 0 errors/0 warnings; `pnpm test` 360/360 (25 new); `pnpm build` + postbuild green; standalone build like-for-like repro — comment POST 200 (row inserted `pending`), admin login + `moderateComment` approve (DB verified), mobile 390px `scrollWidth == clientWidth`. `pnpm audit --prod` 0 vulnerabilities (unchanged).
+
+---
+
+*End of Pass 5 remediation plan.*

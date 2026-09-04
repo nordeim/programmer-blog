@@ -856,3 +856,70 @@ The audit is `PASSED` for production readiness. **No open deferred findings.** E
 **NOT SAFE TO SHIP** as-is: C-35 is a public credentials disclosure on the production login page and C-36 keeps two top routes down in production. Both are repo-fixable (R-37, R-38); H-34/H-35 close real auth/availability gaps (R-39, R-40); the remaining items are hardening + contract alignment. Re-audit after R-37..R-47 gates the release. The deployment-side actions (set `DATABASE_PATH`, `NEXT_PUBLIC_SITE_URL`, run migrations + seed, rotate the seeded password) are documented in **R-47** and require operator access to the deploy environment.
 
 *End of Pass 4 addendum.*
+
+# Pass 5 Addendum (2026-09-04) — Live E2E verification of the remediated deployment
+
+**Trigger:** the Pass 4 remediated build was redeployed to `https://programmer-blog.jesspete.shop/`. Per the `code-review-and-audit` skill (functional + security tiers) and the hybrid method of the `e2e-testing-lessons` skill, a fresh browser E2E (`agent-browser`, Playwright-class) ran against the live site **and** a local reproduction (dev server + standalone production build, seeded SQLite).
+
+## Pass 4 fixes verified live (all hold)
+
+| Check | Result |
+|---|---|
+| `/` landing: 6 sections, GitHub pill (97.4k/5.6k), 0 console errors, 0 failed requests | ✅ Pass |
+| `/archive` 200 with 9 essays; search `?q=database` works (C-36/R-38 fix holds) | ✅ Pass |
+| `/posts/[slug]` 200, prev/next + comment form render (C-36 fix holds) | ✅ Pass |
+| `/rss.xml` 9 items + `/sitemap.xml` 15 URLs, prod domain, correct MIME (R-34/M-37 hold) | ✅ Pass |
+| Security headers: CSP w/o `unsafe-eval`, HSTS preload, XFO DENY, XCTO, RP, PP | ✅ Pass |
+| `/admin` unauth → 307 `/admin/login?next=%2Fadmin` (C-31 fix holds) | ✅ Pass |
+| `/admin/login` shows **no** dev credentials (R-37/C-35 fix holds) | ✅ Pass |
+| Invalid login renders "Invalid email or password." via `[data-testid=login-error]` | ✅ Pass (a truncated snapshot initially suggested otherwise — false alarm) |
+| Subscribe validation, `/api/github-stats`, `/api/confirm` 400, 404 page, 3 themes + cookie | ✅ Pass |
+
+## New findings (severity-ranked)
+
+### 🔴 C-37 — Every Server Action mutation 500s in production (`'use server'` files exporting non-async values)
+- **Locations:** `features/blog/actions.ts` (`export const createCommentInputSchema`), `features/admin/actions.ts` (`moderateCommentInputSchema`, `siteSettingsInputSchema`, plus the `export { postInputSchema }` re-export).
+- **Evidence (live):** `POST /posts/[slug]` → 500 (React error #441, digest `651450296@E352`); UI shows nothing. **Evidence (local repro):** dev + standalone builds throw `Error: A "use server" file can only export async functions, found object.` at module evaluation when any action in those files is invoked. `createComment`, `createPost`, `updatePost`, `deletePost`, `moderateComment` and `updateSiteSettings` were **all** dead. The unit suite could not see it: vitest never exercises the Server Actions loader, and no test renders through it.
+- **Impact:** the blog's entire write surface (comments + admin CRUD + moderation + settings) was unavailable in production.
+- **Fix:** **R-48** — schemas moved out of `'use server'` files (blog schema deduped onto the canonical `@devlog/types` one, admin schemas into `features/admin/schemas.ts`), plus a source-scan regression test (`use-server-exports-scan.test.ts`).
+
+### 🟠 H-37 — Prerendered pages served build-time `http://localhost:3000` canonical/OG URLs
+- **Evidence (live):** post pages + `/admin/login` → `<link rel="canonical" href="http://localhost:3000/…">`, `og:url`/`og:image` localhost, while sitemap/RSS advertised the prod domain (they revalidate hourly and had self-healed).
+- **Root cause:** `posts/[slug]` prerenders via `generateStaticParams` with **no `revalidate`**; build machines routinely lack the runtime `NEXT_PUBLIC_SITE_URL`.
+- **Fix:** **R-49** — `revalidate = 3600` on `posts/[slug]` + `/admin/login` (self-heal, matching the feeds); the deploy checklist now requires the **build** to run with `NEXT_PUBLIC_SITE_URL` set.
+
+### 🟠 H-38 — Archive tag filter offered dead filters
+- **Evidence (live):** dropdown lists all 12 tag rows; `?tag=rust` / `typescript` / `go` → "0 essays" (no published post carries them).
+- **Fix:** **R-50** — new `getTagsInUse()` query (DISTINCT tags joined to published posts) drives the dropdown.
+
+### 🟡 M-40 — Archive rows rendered "Uncategorised" for every post
+- **Evidence (live):** all 9 archive rows show `UNCATEGORISED` while post pages show real tags.
+- **Root cause:** `archive/page.tsx` passed a hardcoded `[]` into `postToArchiveItem` ("tags-per-row dropped for v1").
+- **Fix:** **R-51** — batched `getTagsForPosts()` (single `IN` query, no N+1) feeds real tags per row.
+
+### 🟡 M-41 — `robots.txt` advertised the build-time sitemap URL
+- **Evidence (live):** `Sitemap: http://localhost:3000/sitemap.xml` (route is `force-static` + `revalidate=86400`).
+- **Fix:** **R-52** — robots.txt revalidates hourly like the other feeds.
+
+### 🟡 M-42 — Mobile horizontal scroll on the landing page
+- **Evidence (live, 390px viewport):** `scrollWidth` 484 vs 390; overflowing chain = `.code-window pre` (white-space: pre) min-content inflating the snippet-showcase grid track.
+- **Fix:** **R-53** — `min-w-0` on the grid children + `.code-window pre { overflow-x: auto; }`, landed **mockup-first** (source of truth) and ported 1:1; parity pinned by test. Verified locally: `scrollWidth == clientWidth`.
+
+### 🟢 L-38 — Two `<h1>` elements on post pages
+- **Evidence (live):** page header H1 + MDX body's leading `# …` heading.
+- **Fix:** **R-54** — `stripLeadingH1()` helper applied to the MDX body render.
+
+### 🟢 L-39 — `/unsubscribe` without a token headlined "something broke"
+- **Fix:** **R-55** — error state now renders "couldn't confirm" (user-input error ≠ system failure); success state unchanged.
+
+## Post-remediation verification
+
+- `pnpm check-types` 5/5 packages, 0 errors; `pnpm lint` 0 errors, 0 warnings.
+- `pnpm test` **360/360** (287 web / 27 db / 22 auth / 21 types / 3 email) — 25 new regression tests.
+- `pnpm build` + postbuild standalone asset copy: green.
+- Standalone production build (like-for-like deployment): comment POST 200 → row inserted `pending`; admin login → `moderateComment` approves (DB verified); landing/archive 200; mobile 390px no horizontal scroll.
+- `pnpm audit --prod`: 0 vulnerabilities (unchanged).
+
+**Sign-off:** the deployment-blocking C-37 is closed at the source. Operator note for the next deploy: build with `NEXT_PUBLIC_SITE_URL=https://programmer-blog.jesspete.shop/` set (H-37) and keep the runtime env from the Pass 4 checklist (R-47).
+
+*End of Pass 5 addendum.*
