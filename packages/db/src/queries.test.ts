@@ -37,6 +37,8 @@ import {
   getConfirmedSubscriberCount,
   getPostStats,
   getSubscriberStats,
+  getTagsForPosts,
+  getTagsInUse,
 } from './queries';
 import { posts, postsToTags, subscribers, tags, users, comments } from './schema';
 
@@ -64,7 +66,10 @@ beforeAll(() => {
     .run();
 
   db.insert(tags)
-    .values({ id: 't1', slug: 'rust', name: 'Rust' })
+    .values([
+      { id: 't1', slug: 'rust', name: 'Rust' },
+      { id: 't2', slug: 'unused-tag', name: 'Unused Tag' },
+    ])
     .run();
   db.insert(postsToTags)
     .values({ postId: 'pc', tagId: 't1' })
@@ -162,6 +167,38 @@ describe('getArchivePosts — paginated listing stays correct', () => {
   it('filters by tag via the join branch', async () => {
     const rows = await getArchivePosts(1, 10, 'rust');
     expect(rows.map((r) => r.slug)).toEqual(['post-c']);
+  });
+});
+
+describe('getTagsInUse — R-50 (H-38 dead tag filters)', () => {
+  it('returns only tags attached to at least one published post', async () => {
+    const rows = await getTagsInUse();
+    // 'unused-tag' has no postsToTags row; it must NOT be offered.
+    expect(rows.map((t) => t.slug)).toEqual(['rust']);
+  });
+
+  it('excludes tags only attached to draft posts', async () => {
+    // Attach t2 to the DRAFT post only — still must not be "in use".
+    db.insert(postsToTags).values({ postId: 'pd', tagId: 't2' }).run();
+    const rows = await getTagsInUse();
+    expect(rows.map((t) => t.slug)).toEqual(['rust']);
+  });
+});
+
+describe('getTagsForPosts — R-51 (M-40 Uncategorised archive rows)', () => {
+  it('groups tags per post id in a single batched query', async () => {
+    const map = await getTagsForPosts(['pc', 'pb']);
+    expect(map.get('pc')?.map((t) => t.name)).toEqual(['Rust']);
+    expect(map.get('pb')).toEqual([]);
+  });
+
+  it('returns an empty map for an empty id list (no query)', async () => {
+    await expect(getTagsForPosts([])).resolves.toEqual(new Map());
+  });
+
+  it('returns [] for unknown post ids', async () => {
+    const map = await getTagsForPosts(['nope']);
+    expect(map.get('nope')).toEqual([]);
   });
 });
 

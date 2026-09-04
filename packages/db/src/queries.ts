@@ -11,7 +11,7 @@
  *   - raw `sql` fragments against timestamp columns must bind epoch
  *     SECONDS (the stored unit), via `postEpochSeconds` below.
  */
-import { and, count, desc, eq, isNotNull, isNull, like, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, isNull, like, or, sql } from 'drizzle-orm';
 
 import { db } from './client';
 import { comments, posts, postsToTags, siteSettings, subscribers, tags, users } from './schema';
@@ -254,6 +254,57 @@ export async function getApprovedCommentsForPost(postId: string) {
 // ── Tags ────────────────────────────────────────────────────────────────────
 export async function getAllTags() {
   return db.select().from(tags).orderBy(tags.name).all();
+}
+
+/**
+ * R-50 (Pass 5, H-38): tags attached to at least one PUBLISHED post.
+ *
+ * `getAllTags()` returns every row in the `tags` table, so the archive
+ * filter dropdown offered slugs that no published post carries (e.g.
+ * `?tag=rust` → "0 essays" on the live deployment) — dead filters that
+ * look broken to visitors. `inArray`-style DISTINCT join keeps this to
+ * a single query.
+ */
+export async function getTagsInUse() {
+  const rows = db
+    .selectDistinct({ id: tags.id, slug: tags.slug, name: tags.name })
+    .from(tags)
+    .innerJoin(postsToTags, eq(postsToTags.tagId, tags.id))
+    .innerJoin(posts, eq(posts.id, postsToTags.postId))
+    .where(eq(posts.status, 'published'))
+    .orderBy(tags.name)
+    .all();
+  return rows;
+}
+
+/**
+ * R-51 (Pass 5, M-40): batched tags-per-post lookup for list views.
+ *
+ * The archive page passed a hardcoded `[]` into `postToArchiveItem`,
+ * so every row rendered as "Uncategorised". One `inArray` query groups
+ * the tags for a whole page of posts (no N+1).
+ */
+export async function getTagsForPosts(postIds: string[]) {
+  const map = new Map<string, { id: string; slug: string; name: string }[]>();
+  for (const id of postIds) map.set(id, []);
+  if (postIds.length === 0) return map;
+
+  const rows = db
+    .select({
+      postId: postsToTags.postId,
+      id: tags.id,
+      slug: tags.slug,
+      name: tags.name,
+    })
+    .from(postsToTags)
+    .innerJoin(tags, eq(tags.id, postsToTags.tagId))
+    .where(inArray(postsToTags.postId, postIds))
+    .all();
+
+  for (const row of rows) {
+    map.get(row.postId)?.push({ id: row.id, slug: row.slug, name: row.name });
+  }
+  return map;
 }
 
 // ── Site settings ───────────────────────────────────────────────────────────

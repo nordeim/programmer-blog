@@ -8,7 +8,7 @@
  *
  * Source: PAD §3.2 (public route group); MEP §5 Phase 5 RED 5.1.
  */
-import { getAllTags, getArchiveCount, getArchivePosts } from '@devlog/db';
+import { getArchiveCount, getArchivePosts, getTagsForPosts, getTagsInUse } from '@devlog/db';
 import type { Metadata } from 'next';
 
 import { ArchiveList } from '@/features/blog/archive-list';
@@ -46,11 +46,19 @@ export default async function ArchivePage({
   const tagSlug = sp.tag?.trim() || undefined;
   const query = sp.q?.trim() || undefined;
 
-  const [postRows, total, tags] = await Promise.all([
+  const [postRows, total, tagsInUse] = await Promise.all([
     getArchivePosts(page, PAGE_SIZE, tagSlug, query),
     getArchiveCount(tagSlug, query),
-    getAllTags(),
+    // R-50 (H-38): offer only tags attached to published posts — getAllTags()
+    // listed every `tags` row, so the dropdown advertised dead filters
+    // (?tag=rust → "0 essays" live).
+    getTagsInUse(),
   ]);
+
+  // R-51 (M-40): real tags per row. The hardcoded `[]` below rendered every
+  // archive row as "Uncategorised"; one batched IN query groups the tags
+  // for the whole page (no N+1).
+  const tagsByPostId = await getTagsForPosts(postRows.map((p) => p.id));
 
   const posts = postRows.map((p) =>
     postToArchiveItem(
@@ -61,7 +69,7 @@ export default async function ArchivePage({
         publishedAt: p.publishedAt,
         readingTimeMinutes: p.readingTimeMinutes,
       },
-      [], // tags-per-row dropped for v1; the landing archive-item shows just one tag
+      tagsByPostId.get(p.id) ?? [],
     ),
   );
 
@@ -71,7 +79,7 @@ export default async function ArchivePage({
     pageSize: PAGE_SIZE,
   });
 
-  const tagOptions = tags.map((t) => ({ slug: t.slug, name: t.name }));
+  const tagOptions = tagsInUse.map((t) => ({ slug: t.slug, name: t.name }));
 
   return (
     <section className="py-24 md:py-32 px-6" id="archive-page" aria-labelledby="archive-title">

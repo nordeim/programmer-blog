@@ -31,12 +31,16 @@ vi.mock('next/navigation', () => ({
 
 const mockGetArchivePosts = vi.fn();
 const mockGetArchiveCount = vi.fn();
-const mockGetAllTags = vi.fn();
+const mockGetTagsInUse = vi.fn();
+const mockGetTagsForPosts = vi.fn();
 
 vi.mock('@devlog/db', () => ({
   getArchivePosts: (...args: unknown[]) => mockGetArchivePosts(...args),
   getArchiveCount: (...args: unknown[]) => mockGetArchiveCount(...args),
-  getAllTags: () => mockGetAllTags(),
+  // R-50: the dropdown must be driven by tags-in-use, not getAllTags().
+  getTagsInUse: (...args: unknown[]) => mockGetTagsInUse(...args),
+  // R-51: real tags per archive row (batched lookup).
+  getTagsForPosts: (...args: unknown[]) => mockGetTagsForPosts(...args),
 }));
 
 import ArchivePage from './page';
@@ -68,8 +72,10 @@ describe('ArchivePage', () => {
   beforeEach(() => {
     mockGetArchivePosts.mockReset();
     mockGetArchiveCount.mockReset();
-    mockGetAllTags.mockReset();
-    mockGetAllTags.mockResolvedValue(TAGS);
+    mockGetTagsInUse.mockReset();
+    mockGetTagsForPosts.mockReset();
+    mockGetTagsInUse.mockResolvedValue(TAGS);
+    mockGetTagsForPosts.mockResolvedValue(new Map());
   });
 
   it('renders the empty-state copy when DB has zero posts', async () => {
@@ -138,5 +144,35 @@ describe('ArchivePage', () => {
     });
     const { getByText } = render(ui);
     expect(getByText(/no essays match this filter/i)).toBeTruthy();
+  });
+
+  it('renders each post tag instead of "Uncategorised" — R-51 (M-40)', async () => {
+    const posts = Array.from({ length: 2 }, (_, i) => makePost(i + 1));
+    mockGetArchivePosts.mockResolvedValue(posts);
+    mockGetArchiveCount.mockResolvedValue(2);
+    mockGetTagsForPosts.mockResolvedValue(
+      new Map([
+        ['p1', [{ id: 't1', slug: 'javascript', name: 'JavaScript' }]],
+        ['p2', []], // a genuinely untagged post still falls back
+      ]),
+    );
+
+    const ui = await ArchivePage({ searchParams: Promise.resolve({}) });
+    const { container } = render(ui);
+
+    const tags = Array.from(container.querySelectorAll('.archive-item .tag')).map(
+      (el) => el.textContent,
+    );
+    expect(tags).toEqual(['JavaScript', 'Uncategorised']);
+  });
+
+  it('queries tags-in-use (not all tags) for the filter dropdown — R-50 (H-38)', async () => {
+    const posts = Array.from({ length: 2 }, (_, i) => makePost(i + 1));
+    mockGetArchivePosts.mockResolvedValue(posts);
+    mockGetArchiveCount.mockResolvedValue(2);
+
+    await ArchivePage({ searchParams: Promise.resolve({}) });
+
+    expect(mockGetTagsInUse).toHaveBeenCalledTimes(1);
   });
 });
