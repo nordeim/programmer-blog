@@ -1,7 +1,7 @@
 # `/dev/log` — Remediation Plan
 
 **Project:** `/dev/log — Notes from a Programmer's Desk`
-**Status:** Pass 1 (2026-08-26, commit 9a83202) + Pass 2 (2026-09-03, Phase 9.5) + Pass 3 (2026-09-03, R-31..R-36) COMPLETE (R-30 open backlog). **Pass 4 (2026-09-04, R-37..R-47) COMPLETE — live E2E + security re-audit remediation, see §10.**
+**Status:** Pass 1 (2026-08-26, commit 9a83202) + Pass 2 (2026-09-03, Phase 9.5) + Pass 3 (2026-09-03, R-31..R-36) COMPLETE (R-30 open backlog). **Pass 4 (2026-09-04, R-37..R-47) COMPLETE — live E2E + security re-audit remediation, see §10. Pass 5 (R-48..R-56) COMPLETE — see §11. Pass 6 (2026-09-04, R-57..R-70) COMPLETE — tiered review + security audit remediation, see §12.**
 **Companion Document:** `CODE_REVIEW_AUDIT_REPORT.md` (the audit that produced these tasks)
 **Methodology:** Test-Driven Development (Red → Green → Refactor) per `skills/tdd` + `skills/tdd-workflow`
 **Last Updated:** 2026-09-04
@@ -1133,3 +1133,56 @@ After P1–P5 are complete and all gates are green, the agent will:
 ---
 
 *End of Pass 5 remediation plan.*
+
+---
+
+## 12. Pass 6 (2026-09-04) — Tiered review + security audit remediation (R-57..R-71)
+
+**Trigger:** the Pass 6 tiered audit (`code-review-and-audit` deep mode + live E2E) of the fully-remediated Pass 5 codebase. Findings, evidence and the E2E verification table live in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 6 Addendum" (C-38..C-39, H-39, M-43..M-48, L-40..L-44, I-9..I-11).
+
+**Method:** TDD per `skills/tdd` + `skills/tdd-workflow` — every code task starts with a RED test run against the current tree, then the GREEN implementation, then REFACTOR, then the acceptance gate.
+
+### Pre-execution validation of this plan against the codebase
+
+| Assumption | Verified against |
+|---|---|
+| `createComment`/`subscribeToNewsletter` accept `ctx: { ip?: string }` and prefer it over `headers()` | `features/blog/actions.ts:47-76`, `features/subscribe/actions.ts:41-68` ✅ |
+| Rate limiter stores a non-empty array on every allowed request and never deletes keys | `lib/rate-limit.ts:12-30` (docstring contradicts code) ✅ |
+| Login page redirects on raw `searchParams.next`; `safeNext` exists only in `features/auth/actions.ts` | `(auth)/admin/login/page.tsx:39,50`; `features/auth/actions.ts:26-35` ✅ |
+| Both secrets are `.optional()` so missing (≠ short) secrets never throw at parse time | `lib/env.ts:19,27,72-104` ✅ |
+| `getSecret()` is the single HMAC key path, reading only `BETTER_AUTH_SECRET` | `packages/auth/src/tokens.ts:37-53` ✅ |
+| `ArchiveItemData` defined in `features/landing/archive-preview.tsx`; consumed by `lib/blog.ts` + `features/blog/archive-list.tsx`; `ArchiveItem` consumed by landing + blog | grep + file reads ✅ |
+| `renderMDX` imports `defaultMDXComponents` from features; exactly 2 production call sites (post-page, snippet page) + tests | grep ✅ |
+| `stripLeadingH1` already exists in `lib/blog.ts` (R-54) and is pure/reusable for snippets | `lib/blog.ts` ✅ |
+| `siteSettingsInputSchema` has 5 URL fields; `admin/schemas.ts` is a plain module (safe to extend) | `features/admin/schemas.ts` ✅ |
+| `searchPosts` has no LIMIT and interpolates the raw `%query%` pattern | `packages/db/queries.ts:368-381` ✅ |
+| `seed.test.ts` runs against a real SQLite file with a controllable `NODE_ENV` | `packages/db/src/seed.test.ts` ✅ |
+| `devlog.db` seeded 9 posts / 12 tags / 3 subscribers / 2 comments / 1 author | local migrate+seed run ✅ |
+| 360 tests currently green; type-check + lint clean (the no-regression floor for this pass) | executed this session ✅ |
+
+### Tasks
+
+| Task | Finding(s) | Fix (RED → GREEN → REFACTOR) | Status |
+|---|---|---|---|
+| R-57 | C-38, I-9 | RED: `seed.test.ts` — `runSeed()` with `NODE_ENV=production` and no `DEV_AUTHOR_PASSWORD` throws an actionable error; the literal default `'dev-password-12345'` never reaches `hashPassword` in that path. GREEN: production guard in `seed.ts` + `start_server.sh` generates a random `DEV_AUTHOR_PASSWORD` when absent + `.env.example` entry + header comment corrected (9 posts / 12 tags / 3 subscribers / 2 comments / 1 author). | ✅ Complete |
+| R-58 | H-39 | RED: source-scan test asserting `features/*/actions.ts` never reference `ctx.ip` / accept a `ctx` param; action tests exercise the `headers()` path. GREEN: drop `ctx` from both signatures; IP always from `getClientIpFromHeaders(await headers())`; tests mock `next/headers`. | ✅ Complete |
+| R-59 | M-43 | RED: `rate-limit.test.ts` — filling > `MAX_BUCKETS` distinct keys keeps the Map bounded (oldest keys evicted); stale single-entry buckets are pruned. GREEN: last-seen tracking + bounded eviction + docstring rewrite. | ✅ Complete |
+| R-60 | M-44 | RED: extract `safeNext` into `features/auth/next-url.ts` (+ unit tests: absolute URL, protocol-relative `//`, backslash, non-`/admin` path all rejected → `/admin`); login-page test asserting `?next=https://evil.com` no longer redirects off-site. GREEN: page imports the shared helper. | ✅ Complete |
+| R-61 | M-45 | RED: `env.test.ts` — `NODE_ENV=production` + absent `BETTER_AUTH_SECRET`/`SIGNED_TOKEN_SECRET` → `loadEnv()` throws; dev still boots with the warning fallback. GREEN: post-parse missing-critical check in `loadEnv()`. | ✅ Complete |
+| R-62 | M-46 | RED: `tokens.test.ts` — `signToken` output verifies against `SIGNED_TOKEN_SECRET` (and fails against `BETTER_AUTH_SECRET` when they differ); dev fallback when unset; `createSessionToken` still keyed by `BETTER_AUTH_SECRET`. GREEN: `getTransactionSecret()` in `tokens.ts` + `signToken`/`verifyToken` use it. | ✅ Complete |
+| R-63 | M-47 | RED: new `layer-boundary-scan.test.ts` — `lib/**` must not import `@/features/`, features must not import other features' internals; scan fails on the current tree. GREEN: `ArchiveItemData` → `domain/archive.ts` (with `MOCKUP_ARCHIVE`), `ArchiveItem` → `components/archive-item.tsx`, `renderMDX(source, { components })` required-components param, call sites + tests updated. | ✅ Complete |
+| R-64 | M-48 | RED: snippet route test asserting exactly one `<h1>` per snippet page. GREEN: `renderMDX(stripLeadingH1(snippet.content))` in the snippet route. | ✅ Complete |
+| R-65 | L-40 | RED: schema test — `javascript:alert(1)` / `data:` URLs rejected for the 5 URL fields. GREEN: `.refine(/^https?:\/\//i)` helper in `admin/schemas.ts`. | ✅ Complete |
+| R-66 | L-41 | RED: `queries.test.ts` — a `%` query no longer matches every row; `searchPosts` result capped. GREEN: `escapeLikePattern()` + `LIMIT 50`. | ✅ Complete |
+| R-67 | L-42 | RED: source-scan test asserting `packages/db/src/seed.ts` uses `pathToFileURL` (not string concat) for its direct-run guard. GREEN: adopt the `copy-standalone-assets.ts` pattern. | ✅ Complete |
+| R-68 | L-43 | RED: source-scan test asserting `eslint.config.mjs` overrides reference only existing files. GREEN: fix `mdx.ts` → `mdx.tsx`; replace `components as never` with an explicit structural type + comment; fix the header filename. | ✅ Complete |
+| R-69 | L-44 | RED: none possible (comment-only) — REFACTOR: rewrite the `paginate()` comment to describe actual behavior (window may exceed `maxVisible` with custom `siblings`; caller owns the cap). | ✅ Complete |
+| R-70 | I-9..I-11, doc misalignments | Docs sync: audit report Pass 6 addendum + this §12; AGENTS.md (content source = DB, seed counts, `content/posts/` removal, Tailwind `[var(--*)]` carve-out, default-export route carve-out, env boot-throw semantics, SIGNED_TOKEN_SECRET semantics, DEV_AUTHOR_PASSWORD), CLAUDE.md (same + ESLint mechanism note), README.md (validation status, routes note, seed counts, env table), programmer-blog_SKILL.md (frontmatter Better Auth → homegrown HMAC, §2 env table, §3 bootstrapping, test counts), `.env.example` (+`DEV_AUTHOR_PASSWORD`). | ✅ Complete |
+
+| R-71 | C-40 | RED: git-hygiene scan — `git ls-files` must not list any live-env file (`.env.local`); GREEN: `git rm --cached .env.local` (the `.gitignore` rule already exists). **Mandatory operator follow-up (cannot be done from this workspace): rotate `BETTER_AUTH_SECRET`, `SIGNED_TOKEN_SECRET`, `DEV_AUTHOR_PASSWORD` on the deployment and purge the committed values from git history.** | ✅ Complete (untrack + docs) |
+
+**Risk-accepted (no code change):** C-39 (`docs/ssh-key.txt`) — deliberate operator workflow; follow-ups tracked in the audit addendum (deploy-key scoping, rotation, secret scanning).
+
+### Acceptance gate
+
+`pnpm check-types` 5/5 · `pnpm lint` 0/0 · `pnpm test` all green (360 + new regression tests) · `pnpm build` green · `pnpm audit --prod` 0 vulns · source-scan tests green (server-action exports, session cookie, layer boundaries, eslint refs) · docs updated.

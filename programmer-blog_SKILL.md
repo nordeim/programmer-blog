@@ -3,13 +3,14 @@ name: programmer-blog-skill
 description: >
   Comprehensive engineering reference for the /dev/log programmer blog — a Next.js 16
   App Router + React 19 + Tailwind v4 (CSS-first @theme) + Drizzle ORM (better-sqlite3) +
-  Better Auth + Resend + Vitest monorepo. Distilled from the completed Phases 1–7 of the
-  Master Execution Plan (MEP). Use this when extending, debugging, onboarding to, or
-  replicating the /dev/log architecture.
+  homegrown HMAC auth (@devlog/auth; Better Auth removed per ADR-004 amendment, R-2) +
+  Resend + Vitest monorepo. Distilled from the completed Phases 1–7 of the Master
+  Execution Plan (MEP) plus remediation Passes 1–6. Use this when extending, debugging,
+  onboarding to, or replicating the /dev/log architecture.
 version: 1.0.1
 project: devlog
 last_updated: 2026-09-04
-project_state: 360 tests green (287 web + 27 db + 22 auth + 21 types + 3 email), 5 packages, Next 16.3.4 / drizzle-kit 0.31 / proxy.ts / Web Crypto, Phases 1–7 + remediation A-C + Pass 4–5 (R-37..R-56) complete
+project_state: 405 tests green (322 web + 33 db + 26 auth + 21 types + 3 email), 5 packages, Next 16.3.4 / drizzle-kit 0.31 / proxy.ts / Web Crypto, Phases 1–7 + remediation A-C + Passes 4–6 (R-37..R-70) complete
 tags:
   - documentation
   - knowledge-distillation
@@ -24,7 +25,7 @@ tags:
 
 # `/dev/log` — Programmer Blog Engineering Skill (SKILL.md)
 
-> **How to use this document:** This is the deep-dive codebase reference for `/dev/log`. Read §1–§3 before extending any feature. Read §9 + §10 when debugging. Read §11 before pushing. Read §19 + §20 when authoring or modifying design tokens / TypeScript types. All claims are verified against the actual codebase as of **2026-09-04** (Next 16.3.4 / drizzle-kit 0.31 / `proxy.ts` / Web Crypto `crypto.subtle` / `pnpm db:setup`, 360 tests, `34/34` pages).
+> **How to use this document:** This is the deep-dive codebase reference for `/dev/log`. Read §1–§3 before extending any feature. Read §9 + §10 when debugging. Read §11 before pushing. Read §19 + §20 when authoring or modifying design tokens / TypeScript types. All claims are verified against the actual codebase as of **2026-09-04** (Next 16.3.4 / drizzle-kit 0.31 / `proxy.ts` / Web Crypto `crypto.subtle` / `pnpm db:setup`, 405 tests, Pass 6 audit remediation R-57..R-70 complete).
 
 ---
 
@@ -60,7 +61,7 @@ tags:
 
 ### 1.1 What This Is
 
-`/dev/log — Notes from a Programmer's Desk` (package name: `devlog`) is a production-grade programmer blog by Alex Rivera. Built as a pnpm + Turborepo monorepo with Next.js 16 App Router, React 19, Tailwind CSS v4 (CSS-first `@theme`), Drizzle ORM + better-sqlite3, Better Auth, Resend + React Email, and Vitest.
+`/dev/log — Notes from a Programmer's Desk` (package name: `devlog`) is a production-grade programmer blog by Alex Rivera. Built as a pnpm + Turborepo monorepo with Next.js 16 App Router, React 19, Tailwind CSS v4 (CSS-first `@theme`), Drizzle ORM + better-sqlite3, the homegrown HMAC auth package `@devlog/auth` (Better Auth removed per ADR-004 amendment, R-2), Resend + React Email, and Vitest.
 
 The repo ships three engineering specs at the root: a [PRD](./Project_Requirements_Document.md) (60+ functional requirements), a [PAD](./Project_Architecture_Document.md) (7 ADRs + 5-layer golden rule), and an [MEP](./Master_Execution_Plan.md) (8-phase TDD roadmap). All code changes trace to an FR-N in the PRD via `Refs: FR-N` commit footers.
 
@@ -121,7 +122,7 @@ The repo explicitly rejects: Bootstrap grids, Material Design elevation, default
 | Pre-commit | Husky + lint-staged | `^9.1.0` / `^15.2.0` | Runs Prettier + ESLint on staged files. |
 | Commit lint | @commitlint/cli + config-conventional | `^19.5.0` | Enforces Conventional Commits. Subject ≤72 chars. |
 
-### 2.2 Environment Variables (12 total)
+### 2.2 Environment Variables (13 application variables + `NODE_ENV`)
 
 Defined in [`apps/web/src/lib/env.ts`](./apps/web/src/lib/env.ts) via Zod. **Throws at boot in production** if any required var is missing.
 
@@ -134,11 +135,11 @@ Defined in [`apps/web/src/lib/env.ts`](./apps/web/src/lib/env.ts) via Zod. **Thr
 | `BETTER_AUTH_URL` | `z.string().url()` | `http://localhost:3000` | Canonical site URL for auth callbacks. |
 | `RESEND_API_KEY` | `z.string().startsWith('re_').optional()` | — | Resend API key. Optional in dev (degrades gracefully). |
 | `RESEND_FROM` | `z.string().email()` | `onboarding@resend.dev` | From address (must be on verified Resend domain). |
-| `SIGNED_TOKEN_SECRET` | `z.string().min(32).optional()` | — | 32-byte HMAC key for subscribe/unsubscribe tokens. **Required in prod.** |
+| `SIGNED_TOKEN_SECRET` | `z.string().min(32).optional()` | — | 32-byte HMAC key for subscribe/unsubscribe/preference transaction tokens (R-62: keyed by this since Pass 6; dev falls back to the session secret). **Required in prod — throws at boot if missing (R-61).** |
 | `GITHUB_STATS_FALLBACK_STARS` | `z.coerce.number().int()` | `82400` | Used when GitHub API rate-limited. |
 | `GITHUB_STATS_FALLBACK_FORKS` | `z.coerce.number().int()` | `4180` | Used when GitHub API rate-limited. |
 | `CRON_SECRET` | `z.string().optional()` | — | **Reserved** — no cron routes exist yet (R-47 doc sync). |
-| `DEV_AUTHOR_PASSWORD` | `z.string().min(8).optional()` | — | Dev-only override for the seeded author password; the login-page credentials hint renders in development only (R-37). |
+| `DEV_AUTHOR_PASSWORD` | `z.string().min(8).optional()` | — | Password for the seeded author. Dev-only override (login-page hint renders in development only, R-37); **production seeds throw without it** (R-57/C-38) — `start_server.sh` generates a strong one. |
 | `NODE_ENV` | `z.enum(['development','test','production'])` | `development` | Set by Next.js. In production, a localhost `NEXT_PUBLIC_SITE_URL` warns at boot (R-41). |
 
 **Public** (inlined by Next.js, safe in client components):
@@ -153,8 +154,8 @@ Defined in [`apps/web/src/lib/env.ts`](./apps/web/src/lib/env.ts) via Zod. **Thr
 
 ### 2.3 Test Counts (2026-09-04, post-Pass-5 baseline)
 
-- **360 tests** across 5 packages (`287 web` + `22 auth` + `21 types` + `27 db` + `3 email`); `34/34` pages after `db:seed`.
-- Pass 5 added 25: the `'use server'` export scan, the revalidate contract scan, `getTagsInUse`/`getTagsForPosts` real-SQLite integration tests, archive tag rendering, `stripLeadingH1` units, and the unsubscribe copy tests.
+- **405 tests** across 5 packages (`322 web` + `26 auth` + `21 types` + `33 db` + `3 email`) after Pass 6.
+- Pass 5 added 25 (the `'use server'` export scan, the revalidate contract scan, `getTagsInUse`/`getTagsForPosts` integration tests, archive tag rendering, `stripLeadingH1` units, unsubscribe copy tests). Pass 6 added 45: the layer-boundary scan, the server-action IP scan, the seed production-password guard, rate-limit eviction, `safeNext` open-redirect units + login-page pins, env boot-throw cases, token key-separation, snippet single-h1, schema scheme guards, search hardening integration tests.
 - All green. Updated on every commit via `turbo run test` (`pnpm check` = `check-types && lint && test:coverage && audit --prod && build`).
 
 ---
@@ -180,7 +181,7 @@ cp .env.example .env.local
 
 pnpm db:generate   # `drizzle-kit generate --config ./drizzle.config.ts` in @devlog/db (0.31)
 pnpm db:migrate     # Applies migrations → creates apps/web/devlog.db
-pnpm db:seed        # Seeds mockup data (3 posts, 6 archive, 5 snippets, 1 author)
+pnpm db:seed        # Seeds mockup data (9 posts, 12 tags, 3 subscribers, 2 comments, 1 author)
 # One-shot from scratch:
 pnpm db:setup      # = generate && migrate && seed (135K db, 34/34 pages)
 
@@ -559,7 +560,7 @@ Every hook that touches `window` or `document` checks `typeof window !== 'undefi
 |---|---|---|---|
 | `apps/web/content/snippets/*.mdx` | MDX | Code snippets (e.g. `use-typewriter.mdx`, `use-mouse-glow.mdx`) | 5 |
 | `apps/web/content/posts/*.mdx` | MDX | Full essays | 3 (seeded) |
-| `packages/db/src/seed.ts` | TS | Seeds the SQLite DB with mockup content (3 posts, 6 archive items, 5 snippets, 1 author row in `siteSettings`) | 1 file |
+| `packages/db/src/seed.ts` | TS | Seeds the SQLite DB with mockup content (9 posts, 12 tags, 3 subscribers, 2 comments, 1 author, 1 `siteSettings` row) | 1 file |
 
 ### 7.2 Adding a New Post
 
@@ -588,13 +589,13 @@ The `/posts/[slug]` route renders MDX via `apps/web/src/lib/mdx.tsx` which compi
 pnpm db:seed   # Runs packages/db/src/seed.ts
 ```
 
-The seed script:
-1. Deletes existing rows in `users`, `posts`, `tags`, `postsToTags`, `subscribers`, `comments`, `siteSettings`.
-2. Inserts 1 author (Alex Rivera, role='author').
-3. Inserts 3 posts with mockup content (one per status: draft, published, archived).
-4. Inserts 4 tags and links them via `postsToTags`.
+The seed script (as-built, Pass 6 doc sync I-9):
+1. Inserts 1 author (Alex Rivera, role='author'; scrypt-hashed password from `DEV_AUTHOR_PASSWORD` — production refuses the public default, R-57/C-38).
+2. Idempotent per row: skips rows that already exist (by slug/email/id), so re-running is safe.
+3. Inserts 9 posts with MDX content and 12 tags, linked via `postsToTags`.
+4. Inserts 3 subscribers and 2 comments (pending/approved examples).
 5. Inserts 1 row in `siteSettings` (id=1, the single-row table).
-6. Prints a summary.
+6. Prints a summary. Snippets are NOT seeded — they are MDX files in `apps/web/content/snippets/`.
 
 ---
 
@@ -928,7 +929,7 @@ window.addEventListener('scroll', onScroll, { passive: true });
 | Error | Cause | Fix |
 |---|---|---|
 | `Error: Invalid environment variables` at boot | Zod env validation failed in prod | Check `.env.local` (dev) or deploy env vars (prod). Required: `BETTER_AUTH_SECRET` (32+), `SIGNED_TOKEN_SECRET` (32+) |
-| `Error: invalid or expired token` on `/api/confirm` | HMAC verification failed | Verify `SIGNED_TOKEN_SECRET` matches across env. Tokens are signed with this key. |
+| `Error: invalid or expired token` on `/api/confirm` | HMAC verification failed | Verify `SIGNED_TOKEN_SECRET` matches across env — transaction tokens are keyed by it (R-62). Pre-R-62 tokens were signed with `BETTER_AUTH_SECRET`; re-subscribe to re-issue. |
 | `Error: AUTHOR_REQUIRED` in admin route | User is not signed in or not an author | Catch `AuthorRequiredError` and `redirect('/admin/login')` or `notFound()` |
 | `Error: Too many comments. Try again later.` | Rate limit hit (10 per IP per hour) | Wait 1 hour or restart the dev server (clears in-memory bucket via `__resetRateLimit()` in tests) |
 | Resend: `RESEND_API_KEY not configured. Email not sent.` | No API key in env | Set `RESEND_API_KEY=re_test_...` in `.env.local`. Dev sandbox accepts test keys. |
@@ -996,7 +997,7 @@ curl -s http://localhost:3000/posts/<slug> | grep canonical          # prod orig
 ```bash
 pnpm check-types   # 0 errors across 5 packages
 pnpm lint          # 0 errors (3 pre-existing warnings acceptable)
-pnpm test          # 360 tests passing (287 web + 27 db + 22 auth + 21 types + 3 email)
+pnpm test          # 405 tests passing (322 web + 33 db + 26 auth + 21 types + 3 email)
 pnpm build         # 34/34 pages → apps/web/.next/standalone/apps/web/server.js (proxy.ts, Web Crypto)
 
 # Or all at once (full gate):
@@ -1026,7 +1027,7 @@ console.log('Env OK');
 "
 ```
 
-Required in prod: `BETTER_AUTH_SECRET` (32+ chars), `SIGNED_TOKEN_SECRET` (32+ chars). Optional: `RESEND_API_KEY`, `CRON_SECRET`.
+Required in prod (throw at BOOT since R-61): `BETTER_AUTH_SECRET` (32+ chars), `SIGNED_TOKEN_SECRET` (32+ chars). Production seeding additionally requires `DEV_AUTHOR_PASSWORD` (R-57). Optional: `RESEND_API_KEY`, `CRON_SECRET`.
 
 ### 11.4 Post-Deployment Smoke Tests
 

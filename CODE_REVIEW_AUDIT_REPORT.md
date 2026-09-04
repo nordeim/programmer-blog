@@ -923,3 +923,123 @@ The audit is `PASSED` for production readiness. **No open deferred findings.** E
 **Sign-off:** the deployment-blocking C-37 is closed at the source. Operator note for the next deploy: build with `NEXT_PUBLIC_SITE_URL=https://programmer-blog.jesspete.shop/` set (H-37) and keep the runtime env from the Pass 4 checklist (R-47).
 
 *End of Pass 5 addendum.*
+
+# Pass 6 Addendum (2026-09-04) — Tiered code review + security audit of the Pass 5 remediated codebase
+
+**Trigger:** scheduled tiered review per the `code-review-and-audit` skill (deep mode: Phase 1 static analysis → Phase 2 security → Phase 3 quality/12-category → Phase 4 tests → Phase 6 expert review) before the next ship decision, plus a fresh live E2E pass against `https://programmer-blog.jesspete.shop/`.
+
+**Method:** the skill's Python orchestration scripts (`audit_runner.py` + `checklist_runner.py`) ran first; their raw output was de-noised (≈97% of findings originated in the read-only `skills/**` reference tree, which AGENTS.md excludes from the project — no findings were inflated from that noise, per the skill's anti-inflation rule). The remaining phases ran as manual expert review of the full auth/input-affected surface plus grep-driven contract scans, in parallel with a live browser E2E (`agent-browser`, headless Chromium).
+
+## Pass 5 fixes verified (all hold)
+
+| Check | Result |
+|---|---|
+| `pnpm check-types` 5/5, `pnpm lint` 0/0, `pnpm test` 360/360 pre-remediation (287 web / 27 db / 22 auth / 21 types / 3 email) | ✅ Pass |
+| Landing: all 6 sections, typewriter animating, 3-theme toggle (`data-theme` verified), subscribe toast, 0 console errors | ✅ Pass |
+| `/archive`: 9 essays, tags-in-use dropdown (9 of 12), search `database` → 1 result, `/archive/page/1` 200 | ✅ Pass |
+| `/posts/[slug]`: single `<h1>` (R-54 holds), comment POST → 200 pending, canonical/og:url = prod URL (R-49/R-52 hold) | ✅ Pass |
+| Feeds: `/rss.xml` 9 items, `/sitemap.xml` 17 locs, `/robots.txt` prod URL | ✅ Pass |
+| `/admin` → 307 `/admin/login?next=%2Fadmin` (R-31 holds); no dev credentials in prod HTML (R-37 holds) | ✅ Pass |
+| Invalid login renders `role=alert` "Invalid email or password." (DOM-verified) | ✅ Pass |
+| Mobile 390×844: no horizontal overflow (R-53 holds) | ✅ Pass |
+| Security headers live = `next.config.ts` declaration (CSP, XCTO, XFO DENY, RP, PP, HSTS preload) | ✅ Pass |
+| `pnpm audit --prod`: 0 vulnerabilities | ✅ Pass |
+
+## New findings (severity-ranked)
+
+Counts: **2 Critical / 1 High / 6 Medium / 5 Low / 3 Informational** (one Critical is operator risk-accepted, not a code change).
+
+### 🔴 C-38 — Production seed path creates the author account with a publicly-known hardcoded password
+- **Locations:** `packages/db/src/seed.ts:256` (`process.env.DEV_AUTHOR_PASSWORD ?? 'dev-password-12345'`); enabler: `start_server.sh` `ensure_env` never sets `DEV_AUTHOR_PASSWORD` before `pnpm db:seed`; `.env.example` omits the var despite docs calling it the canonical list.
+- **Evidence:** the seeded author row is `author@devlog.example` / `dev-password-12345` (both strings public in the repo). The documented fresh-clone prod path (`bash start_server.sh`) seeds with this fallback. R-37 only removed the login-page *hint* — the credential itself stayed deterministic. No password-change UI exists in the admin, so the operator cannot rotate it from the app.
+- **Impact:** any deployment following the scripted path ships a publicly-readable admin login (posts CRUD, comment moderation, subscriber-PII CSV export, site settings).
+- **Severity:** Critical (internet-facing, production). **Confidence:** Verified (code + script traced; live env unknown).
+- **Fix:** **R-57** — seed refuses to use the known default when `NODE_ENV=production` without an explicit `DEV_AUTHOR_PASSWORD`; `start_server.sh` generates a random password into `.env.local` when absent; `.env.example` documents the var.
+
+### 🔴 C-40 — Committed `.env.local` with real secrets in a public repo
+- **Location:** `/.env.local` (git-tracked despite `.gitignore` listing `.env.local` — it was force-added past the ignore rule).
+- **Evidence:** the committed file contains filled `BETTER_AUTH_SECRET`, `SIGNED_TOKEN_SECRET`, and `DEV_AUTHOR_PASSWORD` values (plus the operator's production `DATABASE_PATH=/Home1/project/...`), i.e. this is the production-faithful env, not a template.
+- **Impact:** anyone with repo read access can forge valid 30-day author session cookies (`BETTER_AUTH_SECRET` keys session HMAC) and valid subscribe/unsubscribe tokens for the live deployment. This is functionally an authentication bypass on `programmer-blog.jesspete.shop`.
+- **Severity:** Critical (public repo, production secrets, auth-forgery). **Confidence:** Verified (values present in HEAD; whether they match the live deployment: Assumed-but-likely given the machine-specific paths).
+- **Fix:** **R-71** — untrack the file (this pass); **mandatory operator action:** rotate `BETTER_AUTH_SECRET`, `SIGNED_TOKEN_SECRET`, and `DEV_AUTHOR_PASSWORD` on the deployment and purge the values from git history. Note pre-R-62 session/transaction tokens share `BETTER_AUTH_SECRET`, so rotating that one key invalidates both token families.
+
+### 🔴 C-39 — Unencrypted SSH private key committed at `docs/ssh-key.txt` (operator risk-accepted)
+- **Location:** `docs/ssh-key.txt` — complete OpenSSH RSA private key, cipher `none` (no passphrase), decoded and verified.
+- **Impact:** anyone with repo read access holds the private key. If it is authorized beyond this workflow's push key, it is direct host takeover.
+- **Decision:** **risk-accepted by the operator** — the key is deliberately committed to power the documented Paramiko push workflow (`AGENTS.md` §SSH Push; the operating instructions for this engagement explicitly direct its use). Not a code change in this pass.
+- **Mandatory operator follow-ups (backlog):** scope the key to a GitHub *deploy key* (write-only, single repo), rotate it after the workflow ends, purge from git history if it ever guarded more than this repo, and add secret scanning (`gitleaks`) to CI with a documented allowlist entry for this file. **Confidence:** Verified.
+
+### 🟠 H-39 — Server-action rate-limit key is client-controllable (`ctx.ip` argument)
+- **Locations:** `apps/web/src/features/blog/actions.ts:47-76` (`createComment(input, ctx: { ip?: string })`), `apps/web/src/features/subscribe/actions.ts:41-68` (`subscribeToNewsletter(input, ctx)`).
+- **Evidence:** both actions prefer `ctx.ip` over `headers()` when present. Server Action arguments are attacker-serializable over the network, so R-40's "read the REAL client IP server-side" is undone by supplying a fake `ctx.ip` per request.
+- **Impact:** comment limit (10/h) and subscribe limit (5/h) fully bypassable → comment spam, `pending`-subscriber DB flooding, Resend email-pumping. Login limiting is unaffected (`signInAction` has no `ctx`).
+- **Severity:** High (internet-facing anti-abuse control defeated). **Confidence:** Verified.
+- **Fix:** **R-58** — drop the `ctx` parameter; derive IP exclusively via `getClientIpFromHeaders(headers())`.
+
+### 🟡 M-43 — Rate limiter never evicts keys (unbounded Map growth) and docstring claims otherwise
+- **Location:** `apps/web/src/lib/rate-limit.ts:12-30`. The header comment says "keys with empty timestamp lists are deleted" — no deletion code exists, and `fresh.push(now)` guarantees every touched key stays non-empty forever.
+- **Impact:** slow heap-exhaustion DoS via spoofed-IP bucket creation (compounded by H-39 until R-58 lands).
+- **Fix:** **R-59** — last-seen pruning + bucket cap with oldest-key eviction.
+
+### 🟡 M-44 — Open redirect on `/admin/login?next=` for already-authenticated authors
+- **Location:** `apps/web/src/app/(auth)/admin/login/page.tsx:39,50` — `redirect(sp.next ?? '/admin')` with raw `searchParams`. The sign-in action sanitizes `next` via `safeNext()` (`features/auth/actions.ts:26-35`), but the page path bypasses it.
+- **Impact:** a signed-in author clicking `?next=https://evil.com` is 307-ed off-site (phishing aid). Unauthenticated users unaffected.
+- **Fix:** **R-60** — extract `safeNext` into a shared module and apply it on the page path too.
+
+### 🟡 M-45 — `env.ts` does not throw at boot for *missing* production secrets (docs say it does)
+- **Location:** `apps/web/src/lib/env.ts:19,27` — both secrets are `.optional()`, so absence passes `safeParse`; the fatal throw happens later at first `getSecret()` call (`packages/auth/src/tokens.ts:44`), i.e. first `/admin/*` request 500s instead of boot failing. `AGENTS.md`/`README`/the file's own header all promise "throws at boot".
+- **Fix:** **R-61** — `loadEnv()` throws in production when a `SECURITY_CRITICAL_KEYS` var is absent (present-but-short already throws via Zod).
+
+### 🟡 M-46 — `SIGNED_TOKEN_SECRET` is dead config; every HMAC (sessions *and* transaction tokens) is keyed by `BETTER_AUTH_SECRET`
+- **Locations:** `packages/auth/src/tokens.ts:37-53` (single `getSecret()` reading only `BETTER_AUTH_SECRET`) vs five doc surfaces (`AGENTS.md`, `CLAUDE.md`, `README.md`, `programmer-blog_SKILL.md`, `.env.example`) plus `start_server.sh` and PRD FR-30/31, all stating subscribe/unsubscribe tokens are signed with `SIGNED_TOKEN_SECRET`. Repo-wide grep: no runtime read of that var.
+- **Impact:** documented key separation is fiction; rotating `SIGNED_TOKEN_SECRET` invalidates nothing, and the start script enforces a meaningless requirement.
+- **Fix:** **R-62** — transaction tokens (`signToken`/`verifyToken`) key on `SIGNED_TOKEN_SECRET` (dev fallback: session secret), matching the documented contract; docs updated to describe the fallback.
+
+### 🟡 M-47 — 5-layer golden-rule violations (review-blocking class): lib → features imports + cross-feature internals import
+- **Locations:** `apps/web/src/lib/blog.ts:9` (imports `ArchiveItemData` from `@/features/landing/archive-preview`); `apps/web/src/lib/mdx.tsx:21` (imports `defaultMDXComponents` from `@/features/blog/mdx-components`); `apps/web/src/features/blog/archive-list.tsx:11-12` (imports `features/landing` internals).
+- **Impact:** layer inversion creates feature↔lib cycles (`features/blog/post-page.tsx` → `lib/mdx.tsx` → `features/blog/mdx-components.tsx`) and couples blog to landing internals — exactly what the golden rule forbids. No enforcement test exists for these two directions (the repo only pins proxy/server-action boundaries by scan tests).
+- **Fix:** **R-63** — move `ArchiveItemData` to `domain/`, `ArchiveItem` to `components/`, invert `renderMDX` to receive components via parameter, and add a layer-boundary scan test.
+
+### 🟡 M-48 — Snippet pages render two `<h1>` elements (R-54's single-h1 contract not applied to snippets)
+- **Location:** `apps/web/src/app/(public)/snippets/[slug]/page.tsx:95-100` renders the page `<h1>{snippet.title}</h1>` while every snippet MDX file begins with its own `# …` heading rendered unstripped at line 66 (`renderMDX(snippet.content)`).
+- **Evidence (live):** `curl -s …/snippets/use-typewriter | grep -c '<h1'` → 2 (posts = 1).
+- **Fix:** **R-64** — reuse `stripLeadingH1()` from `lib/blog.ts` on the snippet body.
+
+### 🟢 L-40 — Site-settings URL fields accept non-http(s) schemes (currently inert)
+- **Location:** `apps/web/src/features/admin/schemas.ts:29-35` — `z.string().url()` accepts `javascript:`; `socialLinks` has no render sink today (footer hardcodes env URLs), so this is stored-XSS latency, not live XSS.
+- **Fix:** **R-65** — `http(s)` scheme refinement on the five URL fields.
+
+### 🟢 L-41 — `searchPosts` unbounded + LIKE wildcards unescaped
+- **Location:** `packages/db/src/queries.ts:368-381` — no `LIMIT`; user `%`/`_` act as wildcards (fully parameterized — no injection).
+- **Fix:** **R-66** — escape wildcards + `LIMIT 50`.
+
+### 🟢 L-42 — `seed.ts` direct-run detection fragile
+- **Location:** `packages/db/src/seed.ts:378` — ``import.meta.url === `file://${process.argv[1]}` `` breaks on spaces/percent-encoding; the sibling script uses the correct `pathToFileURL` pattern. **Fix:** **R-67**.
+
+### 🟢 L-43 — `lib/mdx.tsx` type-laundering + stale filename references
+- **Locations:** `apps/web/src/lib/mdx.tsx:44` (`components as never`); header comment + `eslint.config.mjs:93` reference `lib/mdx.ts` which no longer exists (dead lint override). **Fix:** **R-68**.
+
+### 🟢 L-44 — `paginate()` comment overstates `maxVisible` clamp
+- **Location:** `apps/web/src/lib/pagination.ts:49-64` — comment claims the window is trimmed to `maxVisible`; code only branches on it (custom `siblings` can exceed the cap). Defaults are test-pinned. **Fix:** **R-69** (comment accuracy).
+
+### ⚪ Informational
+- **I-9 — seed header drift:** `seed.ts:1-9` claims "3 article cards, 6 archive items, 5 snippets, 8 tags"; actual inserts: 9 posts / 12 tags / 3 subscribers / 2 comments / 1 author (snippets are MDX files, not DB rows). Corrected in R-57's doc pass.
+- **I-10 — checklist_runner triage:** the 6 flagged `seed.ts` findings are false positives — intentional code samples inside seeded post content (`const x = [] + {}` etc.), no eval/innerHTML in project code. The two `dangerouslySetInnerHTML` sites are escaped correctly (`serializeJsonLd` R-44; static `themeSyncScript` with whitelisted theme values).
+- **I-11 — doc-reality mismatches (batched into R-70):** `content/posts/` does not exist (posts live in SQLite, rendered via MDX; only snippets are files); seed-count claims in AGENTS/CLAUDE/README; `programmer-blog_SKILL.md` frontmatter still says "Better Auth"; "no arbitrary Tailwind values" vs 40+ `[var(--*)]` usages (they ARE design tokens — doc needs the carve-out); "no default exports" vs 25 Next.js-required route-file defaults (doc needs the carve-out); ESLint mechanism note (`no-explicit-any` + `erasableSyntaxOnly`, not `no-restricted-syntax`); `.env.example` missing `DEV_AUTHOR_PASSWORD`.
+
+## Expert review sign-off (Phase 6)
+
+Surfaces audited clean (verified, no findings): `packages/auth/src/tokens.ts` (v2 format, constant-time compare, server-side TTL, legacy rejection) · `password.ts` (scrypt N=2¹⁵/r=8/p=1, timing-safe verify, fail-closed on malformed hashes) · `auth/index.ts` (no user enumeration, role gate, cookie flags) · `proxy.ts` (matcher + login exemption) · all 5 admin server actions auth-gate first · CSV export (R-45 formula guard on every cell) · `api/confirm` (HMAC + fixed-origin redirect) · `lib/github.ts` (R-43 timeout + fallback) · RSS/sitemap/robots escaping · `json-ld.tsx` (R-44 escaping) · `db/client.ts` (R-38 fail-fast) · all `queries.ts` SQL parameterized · `env.ts` secret-length enforcement (R-13) · `.env.example` has no committed secrets.
+
+## Post-remediation verification (R-57..R-70 complete)
+
+- `pnpm check-types` 5/5 packages, 0 errors; `pnpm lint` 0 errors, 0 warnings.
+- `pnpm test:coverage` **405/405** (322 web / 33 db / 26 auth / 21 types / 3 email) — 45 new tests including the layer-boundary scan, server-action IP scan, seed production-password guard, rate-limit eviction, `safeNext` open-redirect units + login-page pins, env boot-throw cases, token key-separation, snippet single-h1, schema scheme guards, search hardening, and the MDX component-map contract. Coverage thresholds met (the pass also closed the `mdx-components.tsx` function-coverage gap from the R-30 backlog).
+- `pnpm build` + postbuild: green, 34/34 pages (R-61 now enforces what the deploy checklist always required: the build runs with the production secrets set).
+- `pnpm audit --prod`: 0 vulnerabilities.
+- Standalone production smoke test (local, seeded DB): `/snippets/[slug]` renders **one** `<h1>` (M-48 fixed); `/posts/[slug]` still one (R-54 holds); `/archive?q=%` returns **0 rows** (R-66 fixed — previously matched every row); `/admin` → 307 `/admin/login?next=%2Fadmin` (R-31 holds); landing 200.
+- Build-time note for operators: `next build` with `NODE_ENV=production` now **fails fast** when `BETTER_AUTH_SECRET`/`SIGNED_TOKEN_SECRET` are absent (R-61) — set the deploy env before building (this was always the documented Quick Start step 3; it is now enforced instead of advisory).
+
+**Pass 6 sign-off:** C-38 and H-39 are closed at the source with regression pins; the risk-accepted C-39 (committed SSH key) carries documented operator follow-ups (deploy-key scoping, rotation, secret scanning). The codebase matches its documented contracts (AGENTS/CLAUDE/README/SKILL) as of this pass.
+
+*End of Pass 6 addendum.*

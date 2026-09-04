@@ -25,7 +25,7 @@ Compact instructions for AI coding agents working in `/dev/log`. Read before edi
 | **Full quality gate** | **`pnpm check`** |
 | Generate SQL migration | `pnpm db:generate` (`drizzle-kit generate --config ./drizzle.config.ts` in `@devlog/db`) |
 | Apply migrations | `pnpm db:migrate` (creates `apps/web/devlog.db`) |
-| Seed dev DB | `pnpm db:seed` (3 posts, 6 archive, 5 snippets, 1 author) |
+| Seed dev DB | `pnpm db:seed` (9 posts, 12 tags, 3 subscribers, 2 comments, 1 author — snippets are MDX files, not DB rows) |
 | Init DB from scratch | `pnpm db:setup` (= `db:generate && db:migrate && db:seed`) |
 | Drizzle Studio | `pnpm db:studio` → http://localhost:4983 |
 | Single-package test | `pnpm --filter @devlog/web test` |
@@ -77,7 +77,7 @@ A layer may only import from layers *below* it or from its own layer:
 
 **Forbidden:**
 - `as any` — lint blocks it. Use `unknown` + narrow, or `satisfies`.
-- Default exports in `apps/web/src/**` — use named exports only.
+- Default exports in `apps/web/src/**` — EXCEPT the files Next.js itself requires to default-export (`page.tsx`, `layout.tsx`, `error.tsx`, `not-found.tsx`, `manifest.ts`, `opengraph-image.tsx`, route handlers). Everything else uses named exports. Pass 6 doc sync (I-11).
 - `enum` / `namespace` — see above.
 
 ## Tailwind v4 (CSS-First, No Config File)
@@ -85,7 +85,7 @@ A layer may only import from layers *below* it or from its own layer:
 - **No `tailwind.config.ts`.** All tokens live in `@theme` blocks in `packages/config/tailwind/base.css` and `apps/web/src/app/globals.css`.
 - **Themes via `[data-theme="dark|light|cyber"]`** on `<html>`. Do not add a 4th theme — the design budget is closed.
 - **Component classes** (`.btn-primary`, `.article-card`, `.code-window`, etc.) are in `globals.css` ported verbatim from the mockup. Do not re-implement with utilities.
-- **No arbitrary values** like `text-[#abc]`. Use the design token (`text-accent`, `bg-bg-elev`) or extend `@theme`.
+- **No arbitrary literal values** like `text-[#abc]` or `w-[137px]`. Design tokens as arbitrary `var()` values — `bg-[var(--bg-elev)]`, `text-[var(--muted)]` — ARE the established as-built pattern (they reference `@theme` tokens directly) and are allowed. Pass 6 doc sync (I-11).
 
 ## Next.js 16 Quirks
 
@@ -93,7 +93,8 @@ A layer may only import from layers *below* it or from its own layer:
 - **Standalone deploys need the postbuild copy.** `output: 'standalone'` leaves `.next/static` + `public/` out of `.next/standalone/`; `pnpm build` runs `postbuild` (`src/scripts/copy-standalone-assets.ts`, R-33) to mirror them in. Never delete the postbuild script — that's how the live landing page went unstyled (C-34).
 - **Feed URLs are rewrites.** `/rss.xml`, `/sitemap.xml`, `/robots.txt` are rewrites onto the `/api/*` handlers (R-34) — pinned by `src/next.config.test.ts`. All three (plus the prerendered `posts/[slug]` + `/admin/login`) **revalidate hourly** (R-49/R-52): absolute URLs in prerendered HTML bake the BUILD environment's `NEXT_PUBLIC_SITE_URL`, so CI builds must run with it set, and hourly revalidation lets fresh deploys self-heal from the runtime env. Pinned by `src/revalidate-contract.test.ts`.
 - **`output: 'standalone'`** — build produces `apps/web/.next/standalone/apps/web/server.js`. Start with `node apps/web/.next/standalone/apps/web/server.js` (not `next start`).
-- **MDX is first-class** — `pageExtensions: ['ts','tsx','js','jsx','md','mdx']`. Content lives in `apps/web/content/{posts,snippets}/*.mdx`.
+- **MDX is first-class** — `pageExtensions: ['ts','tsx','js','jsx','md','mdx']`.
+- **Content sources (as-built):** blog POSTS live in SQLite (`packages/db/src/seed.ts` seeds them; admin CRUD manages them) and render through `renderMDX`. Only SNIPPETS are MDX files, in `apps/web/content/snippets/*.mdx`. There is no `content/posts/` directory (Pass 6 doc sync, I-9/I-11).
 - **PPR is disabled** (`experimental.cacheComponents` commented out in `next.config.ts`). Enable in Phase 4+ when the landing page is fully built.
 - **Security headers** are declared inline in `next.config.ts` (CSP, X-Content-Type-Options, X-Frame-Options: DENY, Referrer-Policy, Permissions-Policy, HSTS). Edit there, not in `proxy.ts`.
 
@@ -161,7 +162,7 @@ The wrapper is Paramiko-based and handles the `shlex.join()` quoting bug that br
 
 **Never read `process.env.FOO` directly** in feature/component code. Use `apps/web/src/lib/env.ts` (Zod-validated, throws at boot in prod). 13 vars total (plus `NODE_ENV`) — see `.env.example` for the full list with comments. Public vars (`NEXT_PUBLIC_*`) are inlined by Next.js and safe to read in client components.
 
-Required in prod (will throw at boot if missing): `BETTER_AUTH_SECRET` (32+ chars), `SIGNED_TOKEN_SECRET` (32+ chars). Optional in dev: `RESEND_API_KEY` (subscribe flow degrades gracefully without it), `DEV_AUTHOR_PASSWORD` (overrides the seeded dev author password; the login-page credentials hint renders in **development only**, R-37). `CRON_SECRET` is reserved — no cron routes exist yet. In production, a localhost `NEXT_PUBLIC_SITE_URL` triggers a loud boot warning (R-41) — set it to the real origin.
+**Required in prod (throw at boot if missing, R-61/M-45): `BETTER_AUTH_SECRET` (32+ chars) and `SIGNED_TOKEN_SECRET` (32+ chars).** `SIGNED_TOKEN_SECRET` keys the transaction tokens (subscribe confirm/unsubscribe/preferences) since R-62/M-46 — session cookies stay keyed by `BETTER_AUTH_SECRET`; in dev the transaction tokens fall back to the session secret. Optional in dev: `RESEND_API_KEY` (subscribe flow degrades gracefully without it), `DEV_AUTHOR_PASSWORD` (overrides the seeded dev author password; the login-page credentials hint renders in **development only**, R-37; **production seeds refuse the public default without it**, R-57/C-38 — `start_server.sh` generates a strong one automatically). `CRON_SECRET` is reserved — no cron routes exist yet. In production, a localhost `NEXT_PUBLIC_SITE_URL` triggers a loud boot warning (R-41) — set it to the real origin.
 
 ## Don't Do This
 
@@ -176,3 +177,8 @@ Required in prod (will throw at boot if missing): `BETTER_AUTH_SECRET` (32+ char
 - Export a non-async value (schema, constant, class, re-export) from a `'use server'` file — see Server Actions above (R-48).
 - Modify `skills/**` — these are read-only reference skills, not part of the project.
 - Read the session cookie via the literal `'devlog_session'` — always use the `SESSION_COOKIE` constant (a source-scan test fails the suite otherwise, R-42).
+- Read a client-supplied IP in a Server Action — the rate-limit key comes from `getClientIpFromHeaders(await headers())` ONLY; `ctx.ip`-style arguments are attacker-serializable (R-58/H-39, pinned by `server-action-ip-scan.test.ts`).
+- Import `@/features/*` from `lib/`, or another feature's internals from a feature — layer boundaries are pinned by `layer-boundary-scan.test.ts` (R-63/M-47); the only exception is another feature's public API (`actions.ts`/`schemas.ts`).
+- Ship `LIKE '%query%'` search over user input — SQLite treats `%`/`_` as wildcards and drizzle's `like()` has no `ESCAPE`; use the `instr()`-based `buildSearchCondition` in `packages/db/src/queries.ts` (R-66/L-41).
+- Seed a production DB without `DEV_AUTHOR_PASSWORD` — `runSeed()` throws rather than using the public dev default (R-57/C-38).
+- Commit `.env.local` — it is gitignored and must stay untracked; it was once force-added with real secrets (C-40, R-71). Secrets live in the deploy environment only.

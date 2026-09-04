@@ -3,7 +3,7 @@ IMPORTANT: File is read fresh for every conversation. Be brief and practical.
 project_type: nextjs-monorepo
 framework: next.js-16-app-router
 last_updated: 2026-09-04
-# Revalidated 2026-09-04 — Pass 5 remediation (R-48..R-56): async-only 'use server' exports, tags-in-use filter, hourly revalidate contract, mobile min-w-0
+# Revalidated 2026-09-04 — Pass 6 remediation (R-57..R-70): prod seed guard, server-side rate-limit keys, rate-limit eviction, login open-redirect, boot-time secret enforcement, SIGNED_TOKEN_SECRET wiring, layer-boundary scan, snippet single-h1, search hardening
 ---
 
 # `/dev/log` — Programmer Blog
@@ -54,7 +54,7 @@ Follow for all implementation tasks:
 - Never use `any` — use `unknown` and narrow. `as any` is forbidden; lint blocks it.
 - Use `interface` for object shapes, `type` for unions/intersections.
 - Use `import type` for type-only imports when the symbol is not also a value.
-- Prefer named exports. Default exports are forbidden in `apps/web/src/**`.
+- Prefer named exports. Default exports are forbidden in `apps/web/src/**` EXCEPT the files Next.js requires to default-export (`page.tsx`, `layout.tsx`, `error.tsx`, `not-found.tsx`, `manifest.ts`, `opengraph-image.tsx`, route handlers) (Pass 6 doc sync, I-11).
 - Explicit return types on all exported functions.
 
 ### Next.js 16 (App Router)
@@ -65,7 +65,7 @@ Follow for all implementation tasks:
 - **`output: 'standalone'`.** Build produces `apps/web/.next/standalone/apps/web/server.js`. Start with `node apps/web/.next/standalone/apps/web/server.js` (or `pnpm --filter @devlog/web start`), not `next start`. **`pnpm build` runs a `postbuild` step (R-33)** that copies `.next/static` + `public/` into the standalone folder — without it every `/_next/static/*` URL 404s and the landing page renders unstyled (that was live incident C-34).
 - **`transpilePackages`** for all 5 local packages (declared in `next.config.ts`).
 - **`pageExtensions: ['ts','tsx','js','jsx','md','mdx']`** — MDX is a first-class route extension.
-- **MDX content** lives in `apps/web/content/{posts,snippets}/*.mdx`.
+- **MDX content** — snippets live in `apps/web/content/snippets/*.mdx`; blog posts live in the DATABASE (seeded by `packages/db/src/seed.ts`, managed via admin CRUD) and render through `renderMDX`. There is no `content/posts/` directory (Pass 6 doc sync, I-11).
 - **`reactStrictMode: true`** — surfaces unsafe side effects in dev.
 - **Prerendered URL-bearing surfaces revalidate hourly (R-49/R-52).** `posts/[slug]` (generateStaticParams), `/admin/login`, and the robots/rss/sitemap routes export `revalidate = 3600` — absolute URLs in prerendered HTML bake the BUILD env's `NEXT_PUBLIC_SITE_URL`, so CI builds must run with it set; hourly revalidation self-heals fresh deploys from the runtime env. Pinned by `revalidate-contract.test.ts`.
 - **PPR (`experimental.cacheComponents`)** is intentionally disabled in Phase 1; enable in Phase 4 once the landing page is fully built.
@@ -82,7 +82,7 @@ Follow for all implementation tasks:
 - **No `tailwind.config.ts`.** All tokens live in `@theme` blocks in `packages/config/tailwind/base.css` and `apps/web/src/app/globals.css`.
 - **Theme switching via `[data-theme="dark|light|cyber"]`** on `<html>`. The mockup defines 3 themes; do not add a 4th.
 - **Component classes** (`.btn-primary`, `.article-card`, `.code-window`, etc.) live in `globals.css` under `@layer components` — port verbatim from the mockup. Do not re-implement with utility classes.
-- **No arbitrary values** like `text-[#abc123]`. Use the design token (`text-accent`, `bg-bg-elev`) or extend `@theme`.
+- **No arbitrary literal values** like `text-[#abc123]`. Arbitrary `var()` references (`bg-[var(--bg-elev)]`, `text-[var(--muted)]`) ARE the established as-built pattern — they reference `@theme` tokens — and are allowed (Pass 6 doc sync, I-11).
 - **Mobile-first responsive.** `md:` / `lg:` modifiers build up from base mobile styles.
 - **`prefers-reduced-motion`** is enforced in `globals.css` — every animation must respect it.
 
@@ -155,7 +155,7 @@ cp .env.example .env.local
 
 pnpm db:generate   # `drizzle-kit generate --config ./drizzle.config.ts` in @devlog/db (0.31)
 pnpm db:migrate    # Apply migrations (creates apps/web/devlog.db)
-pnpm db:seed       # Seed mockup data (3 posts, 6 archive items, 5 snippets, 1 author)
+pnpm db:seed       # Seed mockup data (9 posts, 12 tags, 3 subscribers, 2 comments, 1 author)
 # One-shot from scratch:
 pnpm db:setup      # = db:generate && db:migrate && db:seed
 
@@ -360,7 +360,7 @@ Packages (@devlog/db, @devlog/auth, @devlog/email, @devlog/types, @devlog/config
 - **Runtime client fails fast (R-38):** a missing `DATABASE_PATH` file is a hard boot error with the remedy in the message — never a silent empty database.
 - **Queries** belong in `packages/db/src/queries.ts` (the boundary). Layer 1 (app) and Layer 2 (features) call queries from there, not Drizzle directly.
 - **Migrations** generated by `pnpm db:generate` → committed → applied via `pnpm db:migrate`. Never `db:push` outside of throwaway dev DBs.
-- **Seed** via `pnpm db:seed` populates the mockup data (3 posts, 6 archive items, 5 snippets, 1 author row).
+- **Seed** via `pnpm db:seed` populates the mockup data (9 posts, 12 tags, 3 subscribers, 2 comments, 1 author row; snippets are MDX files, not DB rows).
 
 ### Environment Variables
 
@@ -373,14 +373,14 @@ Packages (@devlog/db, @devlog/auth, @devlog/email, @devlog/types, @devlog/config
 | `BETTER_AUTH_URL` | Canonical site URL for auth callbacks | No (default `http://localhost:3000`) |
 | `RESEND_API_KEY` | Resend API key (`re_test_...` or `re_...`) | No (dev degrades gracefully) |
 | `RESEND_FROM` | From address (must be on verified Resend domain) | No (default `onboarding@resend.dev`) |
-| `SIGNED_TOKEN_SECRET` | 32-byte HMAC key for subscribe/unsubscribe tokens | Yes (prod) |
+| `SIGNED_TOKEN_SECRET` | 32-byte HMAC key for subscribe/unsubscribe/preference tokens (R-62/M-46: transaction tokens are keyed by this since Pass 6; dev falls back to the session secret) | Yes (prod — throws at boot if missing, R-61) |
 | `NEXT_PUBLIC_SITE_URL` | Canonical site URL (RSS, OG tags, email links) | No (default `http://localhost:3000`; localhost in prod warns at boot, R-41) |
 | `NEXT_PUBLIC_GITHUB_REPO` | `owner/repo` for the nav star pill | No (default `tailwindlabs/tailwindcss`) |
 | `NEXT_PUBLIC_AUTHOR_EMAIL` | Author email for footer mailto | No (default `hi@devlog.example`) |
 | `GITHUB_STATS_FALLBACK_STARS` | Used when GitHub API rate-limited | No (default 82400) |
 | `GITHUB_STATS_FALLBACK_FORKS` | Used when GitHub API rate-limited | No (default 4180) |
 | `CRON_SECRET` | Reserved for future `POST /api/cron/*` endpoints — **no cron routes exist yet** | No |
-| `DEV_AUTHOR_PASSWORD` | Dev-only override for the seeded author password; the login-page hint renders in development only (R-37) | No (dev only) |
+| `DEV_AUTHOR_PASSWORD` | Password for the seeded author. Dev-only override (login-page hint renders in development only, R-37). **Production seeds throw without it** (R-57/C-38); `start_server.sh` generates one automatically | No (dev) / **Yes (prod seed)** |
 
 **Access pattern:** Never read `process.env.FOO` directly in feature code. Use `apps/web/src/lib/env.ts` (Zod-validated, throws at boot in prod). Public vars (`NEXT_PUBLIC_*`) are inlined by Next.js and safe to read in client components.
 

@@ -5,7 +5,7 @@
 [![TypeScript 5.9](https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS v4](https://img.shields.io/badge/Tailwind-v4-38bdf8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![pnpm](https://img.shields.io/badge/pnpm-9.15-f69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
-[![Tests: 360](https://img.shields.io/badge/tests-360-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
+[![Tests: 405](https://img.shields.io/badge/tests-399-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
 [![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red)](#license)
 
 > Notes from a programmer's desk — on code, systems, and the strange joy of debugging at 2am.
@@ -68,6 +68,8 @@ Current audit posture: **0 vulnerabilities** in `pnpm audit --prod` — 0 critic
 
 **Pass 5 (2026-09-04, live E2E verification of the remediated deployment):** with a working seeded database on the live site, a fresh browser E2E verified every Pass 4 fix (C-31/C-35/C-36/R-34 hold) and uncovered **C-37** — every Server Action mutation (`createComment`, `createPost`, `updatePost`, `deletePost`, `moderateComment`, `updateSiteSettings`) 500-ed in production because `'use server'` files exported Zod schema objects, which Next.js 16 forbids (module-evaluation throw invisible to the unit suite). Fixed in R-48 (schemas moved to plain modules + a source-scan regression test), alongside real tags in the archive (R-50/R-51), a tags-in-use filter dropdown, hourly revalidation for prerendered URL-bearing surfaces so canonical/OG URLs stop advertising the build machine's localhost (R-49/R-52), a mobile grid-blowout fix landed mockup-first (R-53), single-`<h1>` post pages (R-54), and calmer unsubscribe error copy (R-55). Full findings, evidence and the live E2E table in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 5 Addendum"; tasks in `REMEDIATION_PLAN.md` §11.
 
+**Pass 6 (2026-09-04, tiered code review + security audit):** a full `code-review-and-audit` deep pass (static analysis → OWASP security scan → 12-category quality checklist → tests → expert review) plus a fresh live E2E verified every Pass 3–5 fix still holds, then found **C-38** — the production seed path (`bash start_server.sh` → `pnpm db:seed`) created the author account with the publicly-known `dev-password-12345` fallback (fixed in R-57: the seed now refuses to seed prod without `DEV_AUTHOR_PASSWORD`, and the start script generates a strong random one) — and **H-39**, a Server-Action argument (`ctx.ip`) that let callers spoof the rate-limit key (fixed in R-58: the IP is read from proxy headers only). Also fixed: unbounded rate-limit store growth (R-59), an open redirect on `/admin/login?next=` for signed-in authors (R-60), boot-time enforcement of missing production secrets (R-61), `SIGNED_TOKEN_SECRET` actually keying transaction tokens per the documented contract (R-62), two 5-layer golden-rule violations + a new layer-boundary scan test (R-63), double `<h1>` on snippet pages (R-64), http(s)-only social URLs (R-65), wildcard-safe search on the live `?q=` path (R-66), and several Low/info cleanups (R-67..R-69). And a third Critical, **C-40**: a force-added `.env.local` tracked real secrets in the public repo — untracked in R-71, with **mandatory operator rotation** of `BETTER_AUTH_SECRET`/`SIGNED_TOKEN_SECRET`/`DEV_AUTHOR_PASSWORD` (the committed session key enables admin-cookie forgery on the live site until rotated). The committed SSH key remains an explicit operator workflow (risk-accepted with rotation/deploy-key follow-ups). Full evidence in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 6 Addendum"; tasks in `REMEDIATION_PLAN.md` §12.
+
 ## Tech Stack
 
 | Layer | Technology | Version | Critical Note |
@@ -86,7 +88,7 @@ Current audit posture: **0 vulnerabilities** in `pnpm audit --prod` — 0 critic
 | Client state | Zustand | `^5.0.15` | Theme + UI stores. Never for server state. |
 | Linter | ESLint | `9.39.5` (flat) | `no-restricted-syntax` blocks `as any`/`enum`/`namespace`. |
 | Test runner | Vitest + jsdom | `^3.2.7` / `^25` | Co-located tests: `Foo.tsx` ↔ `Foo.test.tsx`. |
-| Content | MDX | — | Posts/snippets in `apps/web/content/*.mdx`. |
+| Content | MDX | — | Snippets in `apps/web/content/snippets/*.mdx`; posts live in SQLite and render via MDX. |
 
 ## Architecture
 
@@ -167,7 +169,7 @@ programmer-blog/
 │   │   ├── hooks/                     # useTypewriter, useTheme, useMouseGlow, useReveal, etc.
 │   │   ├── stores/                    # Zustand stores: theme-store, ui-store
 │   │   └── __mocks__/server-only.ts   # Vitest mock for server-only imports
-│   ├── content/                       # MDX essays and snippets
+│   ├── content/                       # MDX snippets (posts live in SQLite, seeded/admin-managed)
 │   ├── proxy.ts                       # Layer 0: admin route guard (Edge, Web Crypto) — replaces middleware.ts since 16.3.4
 │   ├── next.config.ts                 # Security headers, transpilePackages, MDX, standalone → .next/standalone/apps/web/server.js
 │   ├── vitest.config.ts               # Vitest + jsdom
@@ -216,7 +218,7 @@ cp .env.example .env.local
 # pnpm db:setup  # = generate && migrate && seed
 pnpm db:generate   # drizzle-kit generate --config ./drizzle.config.ts (0.31)
 pnpm db:migrate     # Apply migrations (creates apps/web/devlog.db)
-pnpm db:seed        # Seed mockup data (3 posts, 6 archive items, 5 snippets, 1 author)
+pnpm db:seed        # Seed mockup data (9 posts, 12 tags, 3 subscribers, 2 comments, 1 author)
 
 # 5. Run
 pnpm dev           # Boots Next.js at http://localhost:3000
@@ -234,7 +236,7 @@ pnpm check         # = check-types && lint && test:coverage && audit --prod && b
 |---|---|
 | `pnpm check-types` | `0 errors` across all 5 packages |
 | `pnpm lint` | `0 errors` (0 warnings) |
-| `pnpm test` | `360 tests passing` across all packages |
+| `pnpm test` | `405 tests passing` across all packages |
 | `pnpm build` | Standalone build at `apps/web/.next/standalone/` |
 | `pnpm dev` → http://localhost:3000 | Landing page with dark theme + typewriter + marquee |
 
@@ -273,11 +275,11 @@ bash start_server.sh          # from repo root (or ./start_server.sh)
 | `BETTER_AUTH_URL` | Canonical site URL for auth callbacks | No | `http://localhost:3000` |
 | `RESEND_API_KEY` | Resend API key (`re_test_...` or `re_...`) | No (degrades gracefully) | — |
 | `RESEND_FROM` | From address (must be on verified Resend domain) | No | `onboarding@resend.dev` |
-| `SIGNED_TOKEN_SECRET` | 32-byte HMAC key for subscribe/unsubscribe tokens | **Yes** | — |
+| `SIGNED_TOKEN_SECRET` | 32-byte HMAC key for subscribe/unsubscribe/preference tokens (R-62: transaction tokens are keyed by this since Pass 6) | **Yes** (throws at boot if missing, R-61) | — |
 | `GITHUB_STATS_FALLBACK_STARS` | Used when GitHub API rate-limited | No | `82400` |
 | `GITHUB_STATS_FALLBACK_FORKS` | Used when GitHub API rate-limited | No | `4180` |
 | `CRON_SECRET` | **Reserved** — no cron routes exist yet | No | — |
-| `DEV_AUTHOR_PASSWORD` | Dev-only override for the seeded author password (the login-page credentials hint renders in development only, R-37) | No (dev only) | — |
+| `DEV_AUTHOR_PASSWORD` | Password for the seeded author (login-page hint renders in development only, R-37). **Production seeds throw without it** (R-57); `start_server.sh` generates a strong random one automatically | No (dev) / **Yes (prod seed)** | — |
 
 ### Public (inlined by Next.js, safe in client components)
 
@@ -298,7 +300,7 @@ bash start_server.sh          # from repo root (or ./start_server.sh)
 | `/` | Public | Dynamic landing page (Hero, Marquee, RecentNotes, SnippetShowcase, ArchivePreview, SubscribeSection) |
 | `/archive` | Public | Paginated post listing with tag filter + search |
 | `/archive/page/[page]` | Public | Alternative paginated URL for SEO |
-| `/posts/[slug]` | Public | MDX-rendered post with comments + prev/next |
+| `/posts/[slug]` | Public | Post from the DB (seeded/admin-managed), rendered via MDX, with comments + prev/next |
 | `/snippets` | Public | Snippet index |
 | `/snippets/[slug]` | Public | Single snippet |
 | `/rss.xml` | Public | RSS 2.0 feed (rewrite → `/api/rss.xml`, R-34) |
@@ -363,7 +365,7 @@ Every code change follows **Red → Green → Refactor**:
 
 - ✅ `pnpm check-types` — 0 errors across all 5 packages
 - ✅ `pnpm lint` — 0 errors, 0 warnings
-- ✅ `pnpm test` — 360 tests passing across all packages (287 web / 27 db / 22 auth / 21 types / 3 email)
+- ✅ `pnpm test` — 405 tests passing across all packages (322 web / 33 db / 26 auth / 21 types / 3 email)
 - ✅ `pnpm test:coverage` — ~65% lines vs staged regression thresholds (80% target tracked as R-30)
 - ✅ `pnpm build` — 25 routes (16.3.4), `postbuild` copies `.next/static` + `public/` into `.next/standalone/` (R-33) — `proxy.ts` Edge, Web Crypto, no `node:crypto` warning
 - ✅ `pnpm audit --prod` — **0 vulnerabilities** (`pnpm.overrides` via `pnpm-workspace.yaml` + `package.json`; `pnpm` field warning accepted on 9.15.4)
@@ -379,7 +381,7 @@ The database is **runtime data, not a build artifact** — whatever database the
 1. **Database file:** set `DATABASE_PATH` to an **absolute path** (CWD-relative `./devlog.db` is the trap — the standalone `server.js` runs `process.chdir(__dirname)`, so a relative path resolves inside the standalone folder, not `apps/web/`), then run `pnpm db:migrate && pnpm db:seed` against that file. Note: Next.js output-file-tracing snapshots any DB file opened at build time into the standalone output — that snapshot is stale the moment the build finishes, so an explicit absolute `DATABASE_PATH` is always the right answer. Since R-38, booting without the file fails fast with a message naming the path and the remedy — instead of silently creating an empty database (the C-36 outage).
 2. **Secrets:** set `BETTER_AUTH_SECRET` and `SIGNED_TOKEN_SECRET` (32+ chars each) — boot throws without them (R-5).
 3. **Site URL (build AND runtime):** set `NEXT_PUBLIC_SITE_URL=https://your-domain.com` — a localhost value in production warns at boot (R-41) and advertises `http://localhost:3000` in robots.txt, RSS, sitemap and canonical/OG tags. **The CI/build step must also run with this variable set** (Pass 5, H-37): prerendered HTML bakes the build-time value into canonical/OG tags, and the hourly revalidation (R-49/R-52) is only the self-heal backstop, not a substitute.
-4. **Credentials hygiene:** the seeded author password defaults to a documented constant in dev; the login-page credentials hint renders **only** when `NODE_ENV=development` (R-37). Set `DEV_AUTHOR_PASSWORD` before seeding anything internet-facing, or rely on the gating.
+4. **Credentials hygiene:** the seeded author password defaults to a documented constant in dev; the login-page credentials hint renders **only** when `NODE_ENV=development` (R-37). Since R-57 (Pass 6, C-38), seeding a production database **without** `DEV_AUTHOR_PASSWORD` throws instead of silently using the public dev default — `start_server.sh` generates a strong random password and prints it once. Rotate immediately if a pre-R-57 deploy ever used the default.
 5. **Verify before considering the deploy live:** `GET /archive` → 200, `GET /posts/<slug>` → 200, `GET /rss.xml` contains `<item>`s, `GET /sitemap.xml` lists post URLs, `GET /admin` redirects to `/admin/login`. A green landing page alone proves nothing (audit lesson, Passes 3–4).
 
 ## The Golden Rule
@@ -460,7 +462,7 @@ Full troubleshooting in `skills/how-to-git-push-using-ssh-wrapper/SKILL.md`.
 | 5. Subscribe + email | ✅ Complete | Server Action, Zod schema, sliding-window rate limiter, Resend integration |
 | 6. Auth + admin | ✅ Complete | `proxy.ts` (was `middleware.ts`), login page, admin dashboard, post editor |
 | 7. Admin (subscribers + comments + settings) | ✅ Complete | CSV export, comment moderation, settings form, RSS/sitemap/robots |
-| 8. Validation + hardening | 🚧 In progress | Pass 5 audit + remediation (R-37..R-56) complete; production checklist hardened — see the deploy steps above |
+| 8. Validation + hardening | 🚧 In progress | Pass 5 (R-48..R-56) + Pass 6 tiered audit & remediation (R-57..R-70) complete; production checklist hardened — see the deploy steps above |
 
 **Overall progress:** ~90% of the MEP shipped. The remaining work is hardening, security notes, and E2E test coverage (Playwright, deferred).
 
