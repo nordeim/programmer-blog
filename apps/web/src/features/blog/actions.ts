@@ -12,6 +12,12 @@
  * data. The schema field names are kept stable so the Phase 6
  * migration is mechanical.
  *
+ * R-58 (audit H-39): the rate-limit key is derived ONLY from proxy
+ * headers. The previous signature accepted `ctx: { ip?: string }` —
+ * Server Action arguments are attacker-serializable over the network,
+ * so a caller could rotate a fake IP per request and bypass the limit
+ * entirely.
+ *
  * Per PAD §3.3 Pattern 6 (rate limit) + Pattern 3 (server action).
  */
 'use server';
@@ -44,10 +50,7 @@ export interface CreateCommentFailure {
 
 export type CreateCommentResult = CreateCommentSuccess | CreateCommentFailure;
 
-export async function createComment(
-  input: unknown,
-  ctx: { ip?: string } = {},
-): Promise<CreateCommentResult> {
+export async function createComment(input: unknown): Promise<CreateCommentResult> {
   const parsed = createCommentInputSchema.safeParse(input);
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
@@ -62,17 +65,14 @@ export async function createComment(
   }
   const { postId, body, parentId, authorName, authorEmail } = parsed.data;
 
-  // R-40 (H-35): rate limit by the REAL client IP, read server-side from
-  // proxy headers. The previous key (`comment:${postId}` when no IP was
-  // passed by the caller) put every visitor of a post into ONE shared
-  // 10/hour bucket — the 11th legitimate commenter was locked out for
-  // everyone. Falls back to postId only when no proxy headers exist
-  // (e.g. tests, or a direct connection with no proxy in front).
-  let clientIp = ctx.ip;
-  if (!clientIp) {
-    const headersList = await headers();
-    clientIp = getClientIpFromHeaders(headersList);
-  }
+  // R-40 (H-35) + R-58 (H-39): rate limit by the REAL client IP, read
+  // server-side from proxy headers ONLY. The previous code preferred a
+  // caller-supplied `ctx.ip` — Server Action arguments are attacker-
+  // serializable, so that fully bypassed the limit. Falls back to the
+  // 'unknown' bucket when no proxy headers exist (tests, or a direct
+  // connection with no proxy in front).
+  const headersList = await headers();
+  const clientIp = getClientIpFromHeaders(headersList);
   const rateKey = clientIp === 'unknown' ? `comment:unknown-${postId}` : `comment:${clientIp}`;
   const allowed = await rateLimit(rateKey, COMMENT_RATE_LIMIT_PER_HOUR, 3600);
   if (!allowed) {

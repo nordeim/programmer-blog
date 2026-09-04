@@ -16,6 +16,9 @@
  * cron would retry — currently not implemented; the toast tells the
  * user to check inbox).
  *
+ * R-58 (audit H-39): the rate-limit key is derived ONLY from proxy
+ * headers — the previous `ctx.ip` argument was attacker-serializable.
+ *
  * Per PAD §3.3 Pattern 3 + Pattern 6 (signed token + idempotent write).
  */
 'use server';
@@ -38,10 +41,7 @@ import { subscribeInputSchema, type SubscribeResult } from './schema';
 const SUBSCRIBE_RATE_LIMIT_PER_HOUR = 5;
 const SUBSCRIBE_SUBJECT = 'confirm your /dev/log subscription';
 
-export async function subscribeToNewsletter(
-  input: unknown,
-  ctx: { ip?: string } = {},
-): Promise<SubscribeResult> {
+export async function subscribeToNewsletter(input: unknown): Promise<SubscribeResult> {
   // Validate input.
   const parsed = subscribeInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -55,15 +55,13 @@ export async function subscribeToNewsletter(
   }
   const email = parsed.data.email.toLowerCase();
 
-  // Rate limit by the REAL client IP (R-40, H-35), read server-side from
-  // proxy headers; falls back to the email only when no proxy headers
-  // exist. Previously this always keyed on email despite being
+  // Rate limit by the REAL client IP (R-40, H-35; R-58, H-39), read
+  // server-side from proxy headers ONLY — the previous `ctx.ip` argument
+  // was attacker-serializable. Falls back to the email only when no proxy
+  // headers exist. Previously this always keyed on email despite being
   // documented as per-IP.
-  let clientIp = ctx.ip;
-  if (!clientIp) {
-    const headersList = await headers();
-    clientIp = getClientIpFromHeaders(headersList);
-  }
+  const headersList = await headers();
+  const clientIp = getClientIpFromHeaders(headersList);
   const key = clientIp === 'unknown' ? email : clientIp;
   const allowed = await rateLimit(`subscribe:${key}`, SUBSCRIBE_RATE_LIMIT_PER_HOUR, 3600);
   if (!allowed) {

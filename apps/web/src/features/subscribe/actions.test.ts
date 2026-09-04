@@ -157,12 +157,14 @@ describe('subscribeToNewsletter (R-3 / R-4)', () => {
 
   it('blocks the request when the rate limit is exceeded', async () => {
     rateLimitMock.mockResolvedValue(false);
-    const result = await subscribeToNewsletter({ email: 'a@b.co' }, { ip: '203.0.113.9' });
+    // R-58 (H-39): no caller-supplied IP — the key comes from the mocked
+    // proxy headers above (x-forwarded-for: 198.51.100.10).
+    const result = await subscribeToNewsletter({ email: 'a@b.co' });
     expect(result).toEqual({
       ok: false,
       error: 'Too many subscribe requests. Try again later.',
     });
-    expect(rateLimitMock).toHaveBeenCalledWith('subscribe:203.0.113.9', 5, 3600);
+    expect(rateLimitMock).toHaveBeenCalledWith('subscribe:198.51.100.10', 5, 3600);
     expect(sendEmailMock).not.toHaveBeenCalled();
     expect(selectAllMock).not.toHaveBeenCalled();
   });
