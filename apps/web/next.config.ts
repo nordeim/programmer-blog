@@ -3,8 +3,13 @@ import type { NextConfig } from 'next';
 const securityHeaders = () => [
   // R-9 (audit remediation): removed 'unsafe-eval' from script-src per PRD §5.4.
   // Next.js 16 production builds do not require 'unsafe-eval'. 'unsafe-inline'
-  // is required because Next.js injects inline scripts for hydration data.
-  { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.github.com https://api.resend.com; frame-ancestors 'none';" },
+  // is required because Next.js injects inline scripts for hydration data
+  // (plus the layout's theme-flash script) — nonce-based script-src is the
+  // documented Phase-4+ upgrade path (Pass 7 backlog).
+  // R-81 (Pass 7, M-55): base-uri / object-src / form-action do NOT fall
+  // back to default-src, so they must be explicit; without them, an HTML
+  // injection vector could hijack <base> or embed plugins.
+  { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.github.com https://api.resend.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self';" },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
