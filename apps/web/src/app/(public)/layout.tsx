@@ -2,8 +2,9 @@
  * apps/web/src/app/(public)/layout.tsx — public-facing layout.
  *
  * Wraps every public page in: <ProgressBar>, <Nav>, <main>{children}</main>,
- * <Footer>. The Toaster (sonner) is mounted here so client-side toasts
- * (subscribe success, copy confirmation) work across all public pages.
+ * <Footer>. R-93 (Pass 7, L-56): a previous docstring claimed a sonner
+ * <Toaster> is mounted here — no Toaster exists; subscribe feedback uses
+ * the landing page's own <SubscribeToast> component.
  */
 import { Footer } from '@/features/landing/footer';
 import { Nav } from '@/features/landing/nav';

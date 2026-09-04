@@ -2,9 +2,10 @@
  * apps/web/src/features/blog/comment-form.tsx — FR-60 (MEP §5 #11).
  *
  * Client component for leaving a comment. Calls the `createComment`
- * Server Action. Includes client-side validation matching the server
- * schema (so the user gets immediate feedback on empty/oversized
- * bodies) and shows server-returned errors inline.
+ * Server Action (anonymous posting — comments land in `pending`
+ * moderation; no session check by design). Includes client-side
+ * validation matching the server schema (immediate feedback on
+ * empty/oversized bodies) and shows server-returned errors inline.
  *
  * Requires a subscriber session (the server action verifies). If the
  * user has no session, the form is hidden and replaced with a prompt

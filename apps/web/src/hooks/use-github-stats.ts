@@ -2,9 +2,10 @@
  * apps/web/src/hooks/use-github-stats.ts — FR-3.
  *
  * Client hook. Receives initial { stars, forks } (from server render).
- * Polls `/api/github-stats` every 9 seconds, then simulates a +1 star
- * every 9 seconds on top of the cached value (per the mockup, lines
- * 1144-1162). On 4xx/5xx, falls back to the cached value and stops polling.
+ * R-93 (Pass 7, L-56): a previous docstring claimed 9-second polling —
+ * as built, the hook fetches `/api/github-stats` ONCE on mount and then
+ * only simulates a +1 star every 9 seconds on top of the (cached) value
+ * (per the mockup, lines 1144-1162). It never re-fetches on errors.
  *
  * Source of truth: landing_page_mockup.html lines 1144-1162.
  */

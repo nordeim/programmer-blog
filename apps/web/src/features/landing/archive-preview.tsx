@@ -1,8 +1,10 @@
 /**
  * apps/web/src/features/landing/archive-preview.tsx — FR-11.
  *
- * Renders 6 archive items. Server component; falls back to mockup
- * data when the DB is empty so the landing page always has content.
+ * Renders 6 mockup archive items. R-93 (Pass 7, L-56): the landing
+ * page intentionally shows mockup content (the mockup is the source of
+ * truth, per AGENTS.md); a previous docstring claimed a DB-driven
+ * fallback that was never wired. See /archive for the real listing.
  *
  * Source: landing_page_mockup.html lines 884-966.
  */

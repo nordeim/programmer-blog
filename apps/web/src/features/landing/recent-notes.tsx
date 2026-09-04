@@ -1,9 +1,11 @@
 /**
  * apps/web/src/features/landing/recent-notes.tsx — FR-8.
  *
- * Renders the 3 most recent published posts. Server component; if
- * the DB is empty, falls back to the 3 mockup cards verbatim so the
- * landing page never goes blank.
+ * Renders the 3 mockup cards verbatim. R-93 (Pass 7, L-56): the
+ * landing page is a pixel-for-pixel port of the mockup BY DESIGN — the
+ * optional data props exist for parity but are not wired to the DB
+ * (a previous docstring claimed a DB fallback that never existed).
+ * Real post listings live on /archive; /posts/[slug] serves DB posts.
  *
  * Source: landing_page_mockup.html lines 700-772.
  */

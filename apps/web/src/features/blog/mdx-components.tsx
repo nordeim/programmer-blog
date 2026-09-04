@@ -9,9 +9,10 @@
  *   - `pre` → existing `<CodeWindow>` (FR-9, FR-10)
  *   - `a`  → `<HoverLink>` (internal: next/link, external: target=_blank)
  *   - `img` → `next/image`
- *   - `h2`/`h3` → wrapped in <a href="#slug"> for anchor links (rehype-slug
- *     adds the `id` attribute; we wrap text in an anchor so the entire
- *     heading is clickable).
+ *
+ * R-93 (Pass 7, L-56): a previous docstring claimed h2/h3 anchor-link
+ * mappings — no such mapping exists in the map below. Post/snippet
+ * headings render as styled defaults, not clickable anchors.
  */
 import Image from 'next/image';
 import Link from 'next/link';
