@@ -3,7 +3,7 @@ IMPORTANT: File is read fresh for every conversation. Be brief and practical.
 project_type: nextjs-monorepo
 framework: next.js-16-app-router
 last_updated: 2026-09-04
-# Revalidated 2026-09-04 — Pass 4 remediation (R-37..R-47): fail-fast DB client, session token v2, per-IP rate limits, env-gated dev hints
+# Revalidated 2026-09-04 — Pass 5 remediation (R-48..R-56): async-only 'use server' exports, tags-in-use filter, hourly revalidate contract, mobile min-w-0
 ---
 
 # `/dev/log` — Programmer Blog
@@ -67,12 +67,13 @@ Follow for all implementation tasks:
 - **`pageExtensions: ['ts','tsx','js','jsx','md','mdx']`** — MDX is a first-class route extension.
 - **MDX content** lives in `apps/web/content/{posts,snippets}/*.mdx`.
 - **`reactStrictMode: true`** — surfaces unsafe side effects in dev.
+- **Prerendered URL-bearing surfaces revalidate hourly (R-49/R-52).** `posts/[slug]` (generateStaticParams), `/admin/login`, and the robots/rss/sitemap routes export `revalidate = 3600` — absolute URLs in prerendered HTML bake the BUILD env's `NEXT_PUBLIC_SITE_URL`, so CI builds must run with it set; hourly revalidation self-heals fresh deploys from the runtime env. Pinned by `revalidate-contract.test.ts`.
 - **PPR (`experimental.cacheComponents`)** is intentionally disabled in Phase 1; enable in Phase 4 once the landing page is fully built.
 
 ### React 19
 
 - **No `forwardRef`.** React 19 passes `ref` as a regular prop.
-- **Server Actions** for form submissions (`'use server'` in `features/*/actions.ts`).
+- **Server Actions** for form submissions (`'use server'` in `features/*/actions.ts`). `'use server'` files may export **only async functions** (R-48, audit C-37): exporting a Zod schema object or re-exporting one makes the Server Actions loader throw at module evaluation and 500s every action in the file — invisibly to unit tests. Shared schemas live in plain modules (`@devlog/types`, `features/{feature}/schemas.ts`); `use-server-exports-scan.test.ts` enforces this.
 - **`use()` hook** for unwrapping promises from Server Components — no `Suspense` boundary needed for simple cases.
 - **`useFormState` / `useFormStatus`** for progressive form enhancement.
 
@@ -349,7 +350,7 @@ Packages (@devlog/db, @devlog/auth, @devlog/email, @devlog/types, @devlog/config
 ### API Design
 
 - **Route handlers** at `apps/web/src/app/api/{resource}/route.ts`. Force-dynamic when stateful, default-cacheable when static.
-- **Server Actions** at `apps/web/src/features/{feature}/actions.ts`. Mark `'use server'` at the top.
+- **Server Actions** at `apps/web/src/features/{feature}/actions.ts`. Mark `'use server'` at the top. Export **only async functions** from those files (R-48) — schemas live in `@devlog/types` / `features/{feature}/schemas.ts`.
 - **Zod** validates every input. Never read `FormData` or `Request.json()` without parsing through a schema.
 - **Auth checks** before any mutation. Use `await verifySessionToken()` (async since Web Crypto) in Server Actions; `proxy.ts` handles `/admin/*` route auth.
 
@@ -398,3 +399,4 @@ Packages (@devlog/db, @devlog/auth, @devlog/email, @devlog/types, @devlog/config
 - **Framer Motion / GSAP.** CSS-only animation is the rule. Lighthouse ≥95 is the design budget.
 - **Arbitrary Tailwind values (`text-[#abc]`).** Use the design token or extend `@theme`.
 - **Skipping the failing test.** TDD order is non-negotiable: RED → GREEN → REFACTOR.
+- **Exporting non-async values from `'use server'` files.** Review-blocking since C-37 (all six mutations 500-ed in production). The scan test fails the suite.

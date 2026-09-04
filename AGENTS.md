@@ -87,7 +87,7 @@ A layer may only import from layers *below* it or from its own layer:
 
 - **`proxy.ts` (replaces `middleware.ts` since 16.3.4).** Next 16 renamed `middleware.ts` → `proxy.ts`; build **errors** if both exist. The matcher is `['/admin/:path*']`. Keep only `apps/web/src/proxy.ts` (`export async function proxy`).
 - **Standalone deploys need the postbuild copy.** `output: 'standalone'` leaves `.next/static` + `public/` out of `.next/standalone/`; `pnpm build` runs `postbuild` (`src/scripts/copy-standalone-assets.ts`, R-33) to mirror them in. Never delete the postbuild script — that's how the live landing page went unstyled (C-34).
-- **Feed URLs are rewrites.** `/rss.xml`, `/sitemap.xml`, `/robots.txt` are rewrites onto the `/api/*` handlers (R-34) — pinned by `src/next.config.test.ts`.
+- **Feed URLs are rewrites.** `/rss.xml`, `/sitemap.xml`, `/robots.txt` are rewrites onto the `/api/*` handlers (R-34) — pinned by `src/next.config.test.ts`. All three (plus the prerendered `posts/[slug]` + `/admin/login`) **revalidate hourly** (R-49/R-52): absolute URLs in prerendered HTML bake the BUILD environment's `NEXT_PUBLIC_SITE_URL`, so CI builds must run with it set, and hourly revalidation lets fresh deploys self-heal from the runtime env. Pinned by `src/revalidate-contract.test.ts`.
 - **`output: 'standalone'`** — build produces `apps/web/.next/standalone/apps/web/server.js`. Start with `node apps/web/.next/standalone/apps/web/server.js` (not `next start`).
 - **MDX is first-class** — `pageExtensions: ['ts','tsx','js','jsx','md','mdx']`. Content lives in `apps/web/content/{posts,snippets}/*.mdx`.
 - **PPR is disabled** (`experimental.cacheComponents` commented out in `next.config.ts`). Enable in Phase 4+ when the landing page is fully built.
@@ -117,6 +117,7 @@ A layer may only import from layers *below* it or from its own layer:
 ## Server Actions
 
 - **Location:** `apps/web/src/features/{feature}/actions.ts` with `'use server'` at the top.
+- **Async-function exports only (R-48, review-blocking):** a `'use server'` file may export **only async functions**. Exporting a Zod schema object, a constant, or re-exporting one (`export { schema }`) makes the Server Actions loader throw `A "use server" file can only export async functions, found object.` at module-evaluation time — which 500s **every** action in that file while unit tests stay green (audit C-37: all six mutations were dead in production this way). Shared schemas live in plain modules: `@devlog/types` and `features/{feature}/schemas.ts`. `use-server-exports-scan.test.ts` enforces this.
 - **Return shape:** discriminated union — `{ status: 'ok', data } | { status: 'error', fieldErrors?, message? }`. **Never throw** across the network boundary.
 - **Validate every input with Zod.** Never read `FormData` without parsing through a schema.
 - **Auth check first.** Call `requireAuthor(cookieValue)` from `@/lib/auth` (or `verifySessionToken()` from `@devlog/auth/tokens` on the edge) — never hand-parse the session cookie yourself.
@@ -168,5 +169,6 @@ Required in prod (will throw at boot if missing): `BETTER_AUTH_SECRET` (32+ char
 - Use arbitrary Tailwind values (`text-[#abc]`) — use design tokens or extend `@theme`.
 - Use `pnpm db:push` in prod — always `db:generate` → review → `db:migrate`.
 - Skip the failing test — TDD order is non-negotiable.
+- Export a non-async value (schema, constant, class, re-export) from a `'use server'` file — see Server Actions above (R-48).
 - Modify `skills/**` — these are read-only reference skills, not part of the project.
 - Read the session cookie via the literal `'devlog_session'` — always use the `SESSION_COOKIE` constant (a source-scan test fails the suite otherwise, R-42).

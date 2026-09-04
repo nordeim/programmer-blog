@@ -5,7 +5,7 @@
 [![TypeScript 5.9](https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS v4](https://img.shields.io/badge/Tailwind-v4-38bdf8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![pnpm](https://img.shields.io/badge/pnpm-9.15-f69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
-[![Tests: 335](https://img.shields.io/badge/tests-335-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
+[![Tests: 360](https://img.shields.io/badge/tests-360-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
 [![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red)](#license)
 
 > Notes from a programmer's desk — on code, systems, and the strange joy of debugging at 2am.
@@ -64,6 +64,8 @@ Current audit posture: **0 vulnerabilities** in `pnpm audit --prod` — 0 critic
 **Pass 3 (2026-09-03, post-deployment):** browser E2E against the live site caught four Critical regressions the unit suite could not see — the `/admin/login` redirect loop (C-31), PostgreSQL-only `::int` casts + `Date` binds 500-ing `/archive` and `/posts/[slug]` (C-32/C-33/H-33), and the standalone deploy serving an unstyled landing page because `.next/static` was never copied (C-34). All fixed via R-31..R-34 (see `REMEDIATION_PLAN.md` §8 Pass 3) with the first real-SQLite integration suite for the query layer; full evidence in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 3" addendum.
 
 **Pass 4 (2026-09-04, live E2E re-audit):** a second browser E2E + security review (`code-review-and-audit` deep mode) found the production deployment silently booting against an **empty database** — better-sqlite3 auto-creates a missing `devlog.db`, so `/archive` and `/posts/[slug]` 500-ed while the landing page (hardcoded mockup fallbacks) masked the outage (C-36) — and the production login page **publicly printing the seeded dev credentials** with no environment gating (C-35). Both are fixed (R-38 fail-fast DB client, R-37 env-gated hint), alongside server-side session expiry (R-39), real-IP rate limiting for comments/subscribe (R-40), a localhost-URL boot warning (R-41), CSV formula-injection guard (R-45), JSON-LD script escaping (R-44), and a GitHub fetch timeout (R-43). Full findings, evidence and E2E table in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 4 Addendum"; tasks in `REMEDIATION_PLAN.md` §10. The deployment itself still requires the operator to set an absolute `DATABASE_PATH`, run migrations + seed, and set `NEXT_PUBLIC_SITE_URL` — see the checklist below.
+
+**Pass 5 (2026-09-04, live E2E verification of the remediated deployment):** with a working seeded database on the live site, a fresh browser E2E verified every Pass 4 fix (C-31/C-35/C-36/R-34 hold) and uncovered **C-37** — every Server Action mutation (`createComment`, `createPost`, `updatePost`, `deletePost`, `moderateComment`, `updateSiteSettings`) 500-ed in production because `'use server'` files exported Zod schema objects, which Next.js 16 forbids (module-evaluation throw invisible to the unit suite). Fixed in R-48 (schemas moved to plain modules + a source-scan regression test), alongside real tags in the archive (R-50/R-51), a tags-in-use filter dropdown, hourly revalidation for prerendered URL-bearing surfaces so canonical/OG URLs stop advertising the build machine's localhost (R-49/R-52), a mobile grid-blowout fix landed mockup-first (R-53), single-`<h1>` post pages (R-54), and calmer unsubscribe error copy (R-55). Full findings, evidence and the live E2E table in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 5 Addendum"; tasks in `REMEDIATION_PLAN.md` §11.
 
 ## Tech Stack
 
@@ -229,7 +231,7 @@ pnpm check         # = check-types && lint && test:coverage && audit --prod && b
 |---|---|
 | `pnpm check-types` | `0 errors` across all 5 packages |
 | `pnpm lint` | `0 errors` (0 warnings) |
-| `pnpm test` | `335 tests passing` across all packages |
+| `pnpm test` | `360 tests passing` across all packages |
 | `pnpm build` | Standalone build at `apps/web/.next/standalone/` |
 | `pnpm dev` → http://localhost:3000 | Landing page with dark theme + typewriter + marquee |
 
@@ -336,7 +338,7 @@ Every code change follows **Red → Green → Refactor**:
 
 - ✅ `pnpm check-types` — 0 errors across all 5 packages
 - ✅ `pnpm lint` — 0 errors, 0 warnings
-- ✅ `pnpm test` — 335 tests passing across all packages (267 web / 22 db / 22 auth / 21 types / 3 email)
+- ✅ `pnpm test` — 360 tests passing across all packages (287 web / 27 db / 22 auth / 21 types / 3 email)
 - ✅ `pnpm test:coverage` — ~65% lines vs staged regression thresholds (80% target tracked as R-30)
 - ✅ `pnpm build` — 25 routes (16.3.4), `postbuild` copies `.next/static` + `public/` into `.next/standalone/` (R-33) — `proxy.ts` Edge, Web Crypto, no `node:crypto` warning
 - ✅ `pnpm audit --prod` — **0 vulnerabilities** (`pnpm.overrides` via `pnpm-workspace.yaml` + `package.json`; `pnpm` field warning accepted on 9.15.4)
@@ -351,7 +353,7 @@ The database is **runtime data, not a build artifact** — whatever database the
 
 1. **Database file:** set `DATABASE_PATH` to an **absolute path** (CWD-relative `./devlog.db` is the trap — the standalone `server.js` runs `process.chdir(__dirname)`, so a relative path resolves inside the standalone folder, not `apps/web/`), then run `pnpm db:migrate && pnpm db:seed` against that file. Note: Next.js output-file-tracing snapshots any DB file opened at build time into the standalone output — that snapshot is stale the moment the build finishes, so an explicit absolute `DATABASE_PATH` is always the right answer. Since R-38, booting without the file fails fast with a message naming the path and the remedy — instead of silently creating an empty database (the C-36 outage).
 2. **Secrets:** set `BETTER_AUTH_SECRET` and `SIGNED_TOKEN_SECRET` (32+ chars each) — boot throws without them (R-5).
-3. **Site URL:** set `NEXT_PUBLIC_SITE_URL=https://your-domain.com` — a localhost value in production warns at boot (R-41) and advertises `http://localhost:3000` in robots.txt, RSS, sitemap and canonical/OG tags.
+3. **Site URL (build AND runtime):** set `NEXT_PUBLIC_SITE_URL=https://your-domain.com` — a localhost value in production warns at boot (R-41) and advertises `http://localhost:3000` in robots.txt, RSS, sitemap and canonical/OG tags. **The CI/build step must also run with this variable set** (Pass 5, H-37): prerendered HTML bakes the build-time value into canonical/OG tags, and the hourly revalidation (R-49/R-52) is only the self-heal backstop, not a substitute.
 4. **Credentials hygiene:** the seeded author password defaults to a documented constant in dev; the login-page credentials hint renders **only** when `NODE_ENV=development` (R-37). Set `DEV_AUTHOR_PASSWORD` before seeding anything internet-facing, or rely on the gating.
 5. **Verify before considering the deploy live:** `GET /archive` → 200, `GET /posts/<slug>` → 200, `GET /rss.xml` contains `<item>`s, `GET /sitemap.xml` lists post URLs, `GET /admin` redirects to `/admin/login`. A green landing page alone proves nothing (audit lesson, Passes 3–4).
 
@@ -433,7 +435,7 @@ Full troubleshooting in `skills/how-to-git-push-using-ssh-wrapper/SKILL.md`.
 | 5. Subscribe + email | ✅ Complete | Server Action, Zod schema, sliding-window rate limiter, Resend integration |
 | 6. Auth + admin | ✅ Complete | `proxy.ts` (was `middleware.ts`), login page, admin dashboard, post editor |
 | 7. Admin (subscribers + comments + settings) | ✅ Complete | CSV export, comment moderation, settings form, RSS/sitemap/robots |
-| 8. Validation + hardening | 🚧 In progress | Pass 4 audit + remediation (R-37..R-47) complete; live-site redeploy with the production checklist pending |
+| 8. Validation + hardening | 🚧 In progress | Pass 5 audit + remediation (R-37..R-56) complete; production checklist hardened — see the deploy steps above |
 
 **Overall progress:** ~90% of the MEP shipped. The remaining work is hardening, security notes, and E2E test coverage (Playwright, deferred).
 
@@ -447,6 +449,8 @@ Full troubleshooting in `skills/how-to-git-push-using-ssh-wrapper/SKILL.md`.
 | `/admin/login` redirects to itself forever (`ERR_TOO_MANY_REDIRECTS`) | Pre-R-31 admin shell layout wrapped the login page and gated it on an `x-pathname` header that nothing set (audit C-31) | Upgrade to the route-group shell at `src/app/(auth)/admin/(dashboard)/layout.tsx`; `/admin/login` renders outside it |
 | `/archive` or `/posts/[slug]` → 500 with `unrecognized token: ":"` / `can only bind numbers` | PostgreSQL-only `count(*)::int` casts and `Date` binds in `packages/db/src/queries.ts` (audit C-32/C-33) | Fixed in R-32 (portable `count()` + `postEpochSeconds`); if you reintroduce raw SQL, bind epoch seconds and use drizzle `count()` |
 | `git push` → `Permission denied (publickey)` | OpenSSH not installed in the environment | Use the SSH wrapper: `GIT_SSH_COMMAND="skills/how-to-git-push-using-ssh-wrapper/scripts/ssh_git_wrapper_v3.py -i docs/ssh-key.txt -o StrictHostKeyChecking=accept-new" git push origin main` |
+| Any form submit (comment, admin CRUD) → 500 with `A "use server" file can only export async functions` | A `'use server'` file exports a Zod schema/constant (Next.js 16 forbids non-async exports); module evaluation throws and takes every action in the file down (audit C-37) | Keep schemas in plain modules (`@devlog/types`, `features/{feature}/schemas.ts`); `use-server-exports-scan.test.ts` blocks regressions (R-48) |
+| Post pages / login page canonical + OG tags advertise the build machine's URL | Prerendered HTML baked the build-time `NEXT_PUBLIC_SITE_URL` (audit H-37) | Build with the production value set; `revalidate = 3600` (R-49) self-heals within an hour of deploy |
 | `pnpm start` → `next start does not work with output: standalone` | `next.config.ts` `output:'standalone'` but `next start` ignores standalone bundle | Use `pnpm start` → `node apps/web/.next/standalone/apps/web/server.js` (`pnpm --filter @devlog/web start:next` for `next start`) |
 | Build fails with `better-sqlite3` error in `proxy.ts` | `proxy.ts` imported `@devlog/auth` (root) which pulls `better-sqlite3` into the Edge bundle | Import `@devlog/auth/tokens` instead — it's pure Web Crypto `crypto.subtle` (`async`, no Node deps) |
 | `tsc` fails with `enum declarations are not allowed` | `erasableSyntaxOnly: true` is set in `tsconfig.base.json` | Use `as const` object + union type: `const Role = { Author: 'author', Subscriber: 'subscriber' } as const; type Role = typeof Role[keyof typeof Role];` |

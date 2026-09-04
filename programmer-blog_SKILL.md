@@ -151,9 +151,10 @@ Defined in [`apps/web/src/lib/env.ts`](./apps/web/src/lib/env.ts) via Zod. **Thr
 
 **Access pattern:** Never read `process.env.FOO` directly in feature/component code. Always go through `apps/web/src/lib/env.ts`. Public vars (`NEXT_PUBLIC_*`) are inlined by Next.js and safe to read in client components.
 
-### 2.3 Test Counts (2026-09-03 baseline)
+### 2.3 Test Counts (2026-09-04, post-Pass-5 baseline)
 
-- **272 tests** across 5 packages (`229 web` + `16 auth` + `21 types` + `3 db` + `3 email`); `34/34` pages after `db:seed`.
+- **360 tests** across 5 packages (`287 web` + `22 auth` + `21 types` + `27 db` + `3 email`); `34/34` pages after `db:seed`.
+- Pass 5 added 25: the `'use server'` export scan, the revalidate contract scan, `getTagsInUse`/`getTagsForPosts` real-SQLite integration tests, archive tag rendering, `stripLeadingH1` units, and the unsubscribe copy tests.
 - All green. Updated on every commit via `turbo run test` (`pnpm check` = `check-types && lint && test:coverage && audit --prod && build`).
 
 ---
@@ -895,6 +896,14 @@ window.addEventListener('scroll', onScroll, { passive: true });
 
 **Fix:** Treat `skills/**` as immutable. If a skill is broken, fix it upstream (in the skills repo), not in this project.
 
+### 9.14 AP-14: Exporting Non-Async Values from a `'use server'` File (Critical)
+
+**Symptom:** every Server Action in the file 500s at invocation (`POST … → 500`, client-side React error #441) while `pnpm test` stays green. Server log: `A "use server" file can only export async functions, found object.`
+
+**Root cause:** Next.js 16 validates `'use server'` module exports when the Server Actions loader first evaluates the file. A Zod schema (`export const fooSchema = z.object(…)`) or a re-export (`export { schema }`) violates the async-function-only contract and throws at module evaluation — taking **all** actions in the file down (audit C-37: six mutations dead in production).
+
+**Fix:** keep `'use server'` files action-only. Schemas live in plain modules: `@devlog/types` (canonical, e.g. `createCommentInputSchema`) or `features/{feature}/schemas.ts` (admin schemas, R-48). `apps/web/src/use-server-exports-scan.test.ts` scans every `'use server'` file and fails the suite on any non-async export. Same lesson as AP-9: the unit suite cannot see framework loader behavior — pin it with a source scan.
+
 ---
 
 ## 10. Debugging Guide
@@ -967,6 +976,15 @@ curl -sI http://localhost:3000/ | grep -iE '(csp|x-content-type|x-frame|referrer
 # Verify CSP allows GitHub + Resend
 curl -sI http://localhost:3000/ | grep -i 'content-security-policy'
 # Expected: default-src 'self'; ... connect-src 'self' https://api.github.com https://api.resend.com ...
+
+# Pass 5 additions — verify the write surface + SEO URLs, not just reads
+curl -s http://localhost:3000/archive | grep -c Uncategorised        # 0 (R-51: rows show real tags)
+curl -s 'http://localhost:3000/archive?tag=rust' | grep '0 essays'   # must NOT match unless truly unused (R-50)
+curl -s http://localhost:3000/robots.txt | grep Sitemap              # prod origin, not localhost (R-52)
+curl -s http://localhost:3000/posts/<slug> | grep canonical          # prod origin (R-49; build with NEXT_PUBLIC_SITE_URL set)
+# Server actions cannot be curl-ed (encrypted action IDs) — drive them in a
+# browser (comment submit, admin approve) against the STANDALONE build; the
+# unit suite cannot catch a 'use server' module-evaluation throw (C-37).
 ```
 
 ---
@@ -1276,6 +1294,14 @@ See `apps/web/src/app/layout.tsx:60-97`.
 **Why it mattered:** a limiter keyed on a shared value is both a denial-of-service on legitimate users and no throttle against attackers.
 
 **How to avoid:** **read the client IP server-side from proxy headers** (`x-forwarded-for` first entry, then `x-real-ip`) via the shared `getClientIpFromHeaders` helper (R-40) and fall back to a per-entity key only when genuinely absent. Never rely on the caller to pass request context the server can read itself.
+
+### 12.25 L25 — Prerendered HTML Bakes the Build Machine's Environment (Pass 5, C-37/H-37/M-41)
+
+**What happened:** two distinct builds-without-runtime-env bugs shipped despite a green suite. (1) `'use server'` files exporting Zod schemas made the Server Actions loader throw at module evaluation — every mutation 500-ed in production while unit tests passed, because vitest never exercises the loader. (2) Prerendered pages (generateStaticParams, force-static feeds) baked the build machine's `NEXT_PUBLIC_SITE_URL` into canonical/OG/robots URLs — the live site advertised `http://localhost:3000` while runtime-revalidated routes showed the real origin.
+
+**Why it mattered:** the unit suite validates source, not framework loading or build-time env snapshots — the two blind spots that bit in Passes 3–5 were all "runs at build/boot, not at test time."
+
+**How to avoid:** (a) keep `'use server'` modules action-only and pin the contract with the `use-server-exports-scan.test.ts` source scan; (b) treat any absolute URL baked into prerendered HTML as build-config-owned — CI builds must run with `NEXT_PUBLIC_SITE_URL` set, and URL-bearing surfaces export `revalidate = 3600` so fresh deploys self-heal (pinned by `revalidate-contract.test.ts`); (c) verify every fix against a like-for-like standalone production build, not just `pnpm dev`.
 
 ---
 
