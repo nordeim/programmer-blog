@@ -23,16 +23,10 @@ import { cookies, headers } from 'next/headers';
 import { rateLimit } from '@/lib/rate-limit';
 import { getClientIpFromHeaders } from '@/lib/request-ip';
 
-const ALLOWED_NEXT_PREFIX = '/admin';
+import { safeNext } from './next-url';
+
 const LOGIN_RATE_LIMIT_PER_10_MIN = 5;
 const LOGIN_RATE_LIMIT_WINDOW_SECONDS = 600;
-
-function safeNext(next: string | undefined): string {
-  if (!next || !next.startsWith(ALLOWED_NEXT_PREFIX)) {
-    return ALLOWED_NEXT_PREFIX;
-  }
-  return next;
-}
 
 export interface SignInSuccess {
   ok: true;

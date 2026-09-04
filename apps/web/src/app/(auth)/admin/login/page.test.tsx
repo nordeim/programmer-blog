@@ -80,6 +80,50 @@ describe('admin login page — R-31 / C-31', () => {
     ).rejects.toThrow('NEXT_REDIRECT:/admin');
     expect(mockRedirect).toHaveBeenCalledWith('/admin');
   });
+
+  // R-60 (M-44): the page path must sanitize `next` exactly like the
+  // sign-in action — an authenticated author with a crafted link is a
+  // real phishing target.
+  it('never redirects an authenticated author off-site via ?next= (R-60)', async () => {
+    mockGetSession.mockResolvedValue({
+      id: 'u1',
+      email: 'author@devlog.example',
+      name: 'Alex',
+      role: 'author',
+      image: null,
+    });
+
+    await expect(
+      LoginPage({ searchParams: Promise.resolve({ next: 'https://evil.com' }) }),
+    ).rejects.toThrow('NEXT_REDIRECT:/admin');
+    expect(mockRedirect).toHaveBeenCalledWith('/admin');
+  });
+
+  it('never redirects via protocol-relative ?next= (R-60)', async () => {
+    mockGetSession.mockResolvedValue({
+      id: 'u1',
+      email: 'author@devlog.example',
+      name: 'Alex',
+      role: 'author',
+      image: null,
+    });
+
+    await expect(
+      LoginPage({ searchParams: Promise.resolve({ next: '//evil.com' }) }),
+    ).rejects.toThrow('NEXT_REDIRECT:/admin');
+    expect(mockRedirect).toHaveBeenCalledWith('/admin');
+  });
+
+  it('hands the form a sanitized nextHref for an anonymous visitor (R-60)', async () => {
+    const ui = await LoginPage({
+      searchParams: Promise.resolve({ next: 'https://evil.com' }),
+    });
+    render(ui);
+
+    const form = screen.getByTestId('login-form-stub');
+    expect(form.getAttribute('data-next')).toBe('/admin');
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
 });
 
 describe('admin login page — R-37 / C-35 (dev-credentials hint gating)', () => {

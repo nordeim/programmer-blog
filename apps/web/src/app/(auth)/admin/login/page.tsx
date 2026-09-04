@@ -14,6 +14,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { LoginForm } from '@/features/auth/login-form';
+import { safeNext } from '@/features/auth/next-url';
 import { getSession, SESSION_COOKIE } from '@/lib/auth';
 
 export const metadata: Metadata = {
@@ -36,7 +37,10 @@ interface LoginPageProps {
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const sp = await searchParams;
-  const next = sp.next ?? '/admin';
+  // R-60 (M-44): the raw searchParam must never reach redirect() — an
+  // already-authenticated author visiting ?next=https://evil.com would
+  // be 307-ed off-site. Same guard the sign-in action uses.
+  const next = safeNext(sp.next);
 
   // If the user already has a valid session, redirect to `next`.
   // R-31/M-33: use the exported SESSION_COOKIE constant (was hardcoded).
