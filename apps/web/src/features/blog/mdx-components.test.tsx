@@ -64,14 +64,14 @@ describe('mdx-components — the render contract for DB-backed MDX', () => {
   });
 
   it('MdxLink uses next/link for internal hrefs', () => {
-    const A = defaultMDXComponents.a as React.ComponentType<{ href?: string }>;
+    const A = defaultMDXComponents.a as React.ComponentType<React.ComponentProps<'a'>>;
     render(<A href="/posts/hello">internal</A>);
     expect(screen.getByText('internal').getAttribute('href')).toBe('/posts/hello');
     expect(screen.queryByTestId('hover-link')).toBeNull();
   });
 
   it('MdxLink uses HoverLink for external hrefs', () => {
-    const A = defaultMDXComponents.a as React.ComponentType<{ href?: string }>;
+    const A = defaultMDXComponents.a as React.ComponentType<React.ComponentProps<'a'>>;
     render(<A href="https://example.com">external</A>);
     expect(screen.getByTestId('hover-link')).toBeTruthy();
   });
