@@ -10,7 +10,10 @@
  */
 export function csvEscape(s: string | null | undefined): string {
   if (s === null || s === undefined) return '';
-  const formulaGuard = /^[=+\-@]/.test(s) ? "'" : '';
+  // R-84 (Pass 7, L-47): OWASP's CSV-injection list also includes leading
+  // tab (0x09) and CR (0x0D) — some spreadsheet engines evaluate formulas
+  // prefixed with them.
+  const formulaGuard = /^[\t\r=+\-@]/.test(s) ? "'" : '';
   if (/[",\n\r]/.test(s)) {
     return `"${formulaGuard}${s.replace(/"/g, '""')}"`;
   }

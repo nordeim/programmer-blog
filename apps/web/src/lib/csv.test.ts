@@ -27,6 +27,13 @@ describe('csvEscape — R-45 / M-38', () => {
     expect(csvEscape('line1\nline2')).toBe('"line1\nline2"');
   });
 
+  it('neutralizes leading tab and CR formula-injection vectors too (R-84)', () => {
+    expect(csvEscape('\t=1+1')).toBe("'\t=1+1");
+    // \r also triggers the quoting branch (guard apostrophe sits inside
+    // the quotes, per the standard defense).
+    expect(csvEscape('\r@SUM(A1)')).toBe('"\'\r@SUM(A1)"');
+  });
+
   it('neutralizes formula-injection leading characters with an apostrophe', () => {
     expect(csvEscape('=1+1')).toBe("'=1+1");
     expect(csvEscape('+SUM(A1:A2)')).toBe("'+SUM(A1:A2)");
