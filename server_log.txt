@@ -1,3 +1,7 @@
+$ rm -rf .next */.next */*/.next
+
+$ rm apps/web/devlog.db
+
 $ ./start_server.sh 
 [start] === /dev/log — fresh-clone production start ===
 [start] repo: /Home1/project/programmer-blog
@@ -9,11 +13,12 @@ $ ./start_server.sh
 [start] Ensuring .env.local (production) …
 [ok] .env.local ready (DATABASE_PATH absolute, secrets ≥32, NEXT_PUBLIC_SITE_URL=https://programmer-blog.jesspete.shop)
 [start] Installing dependencies (pnpm install) …
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
 Scope: all 7 workspace projects
 Lockfile is up to date, resolution step is skipped
 Already up to date
 
-Done in 2.5s
+Done in 2.6s
 [ok] deps installed
 [start] Database setup (migrate + seed) …
 > turbo run db:migrate
@@ -24,7 +29,7 @@ Done in 2.5s
    • Running db:migrate in 6 packages
    • Remote caching disabled
 
-@devlog/web:db:migrate: cache bypass, force executing 6ff68e3d8a3ab8f1
+@devlog/web:db:migrate: cache bypass, force executing 0b8473867fe1547f
 @devlog/web:db:migrate: 
 @devlog/web:db:migrate: > @devlog/web@1.0.0 db:migrate /Home1/project/programmer-blog/apps/web
 @devlog/web:db:migrate: > tsx src/scripts/migrate.ts
@@ -34,11 +39,11 @@ Done in 2.5s
 
  Tasks:    1 successful, 1 total
 Cached:    0 cached, 1 total
-  Time:    1.953s 
+  Time:    2.031s 
 
 @devlog/web:db:seed: [seed] Starting...
 @devlog/web:db:seed: [seed] Inserted site_settings
-@devlog/web:db:seed: [seed] Inserted author user 8cfaca6d-4214-4e5d-a214-953fa4c4efe1
+@devlog/web:db:seed: [seed] Inserted author user d4835f55-99f4-402f-b81d-722d2991f837
 @devlog/web:db:seed: [seed] Tags: 12
 @devlog/web:db:seed: [seed] Posts: 9
 @devlog/web:db:seed: [seed] Comments: 2
@@ -54,56 +59,56 @@ Cached:    0 cached, 1 total
 
  Tasks:    1 successful, 1 total
 Cached:    0 cached, 1 total
-  Time:    2.048s 
+  Time:    1.699s 
 
 [start]   sqlite3 not installed — skipping DB count check (seed log above is sufficient)
 [ok] database ready
 [start] Running quality gate (check-types + lint + test) …
+@devlog/web:check-types: 
 @devlog/auth:check-types: 
-@devlog/db:check-types: 
-@devlog/db:check-types: > @devlog/db@1.0.0 check-types /Home1/project/programmer-blog/packages/db
-@devlog/db:check-types: > tsc --noEmit
-@devlog/db:check-types: 
+@devlog/auth:check-types: > @devlog/auth@1.0.0 check-types /Home1/project/programmer-blog/packages/auth
+@devlog/auth:check-types: > tsc --noEmit
+@devlog/auth:check-types: 
 
  Tasks:    5 successful, 5 total
 Cached:    0 cached, 5 total
-  Time:    13.124s 
+  Time:    7.317s 
 
-@devlog/auth:lint: 
 @devlog/types:lint: 
-@devlog/types:lint: > @devlog/types@1.0.0 lint /Home1/project/programmer-blog/packages/types
-@devlog/types:lint: > eslint src/
-@devlog/types:lint: 
+@devlog/email:lint: 
+@devlog/email:lint: > @devlog/email@1.0.0 lint /Home1/project/programmer-blog/packages/email
+@devlog/email:lint: > eslint src/
+@devlog/email:lint: 
 
  Tasks:    5 successful, 5 total
 Cached:    0 cached, 5 total
-  Time:    10.043s 
+  Time:    10.758s 
 
-@devlog/web:test:  ✓ src/components/og-image.test.tsx (3 tests) 9ms
-@devlog/web:test:  ✓ src/lib/log.test.ts (6 tests) 13ms
-@devlog/web:test:  ✓ src/lib/csv.test.ts (6 tests) 7ms
+@devlog/web:test:  ✓ src/features/auth/next-url.test.ts (5 tests) 6ms
+@devlog/web:test:  ✓ src/lib/rss.test.ts (8 tests) 9ms
+@devlog/web:test:  ✓ src/components/og-image.test.tsx (3 tests) 7ms
+@devlog/web:test:  ✓ src/next.config.test.ts (2 tests) 7ms
+@devlog/web:test:  ✓ src/lib/csv.test.ts (6 tests) 6ms
+@devlog/web:test:  ✓ src/domain/github.test.ts (4 tests) 6ms
 @devlog/web:test:  ✓ src/features/subscribe/schema.test.ts (3 tests) 7ms
-@devlog/web:test:  ✓ src/app/layout.test.tsx (2 tests) 7ms
-@devlog/web:test:  ✓ src/app/fonts.test.ts (3 tests) 7ms
+@devlog/web:test:  ✓ src/app/layout.test.tsx (2 tests) 6ms
+@devlog/web:test:  ✓ src/app/fonts.test.ts (3 tests) 6ms
+@devlog/web:test:  ✓ src/lib/request-ip.test.ts (7 tests) 7ms
 @devlog/web:test:  ✓ src/stores/theme-store.test.ts (2 tests) 6ms
-@devlog/web:test:  ✓ src/app/icon.test.ts (4 tests) 12ms
-@devlog/web:test:  ✓ src/domain/github.test.ts (4 tests) 7ms
-@devlog/web:test:  ✓ src/features/auth/next-url.test.ts (5 tests) 10ms
-@devlog/web:test:  ✓ src/lib/request-ip.test.ts (7 tests) 6ms
+@devlog/web:test:  ✓ src/env-example-scan.test.ts (2 tests) 6ms
 @devlog/web:test:  ✓ src/stores/ui-store.test.ts (3 tests) 5ms
 @devlog/web:test:  ✓ src/revalidate-contract.test.ts (4 tests) 5ms
-@devlog/web:test:  ✓ src/env-example-scan.test.ts (2 tests) 5ms
 @devlog/web:test:  ✓ src/app/(public)/archive/page/[page]/page.test.tsx (2 tests) 4ms
 @devlog/web:test: 
 @devlog/web:test:  Test Files  72 passed (72)
 @devlog/web:test:       Tests  355 passed (355)
-@devlog/web:test:    Start at  19:59:48
-@devlog/web:test:    Duration  35.20s (transform 2.07s, setup 16.16s, collect 6.36s, tests 6.72s, environment 45.78s, prepare 9.20s)
+@devlog/web:test:    Start at  21:15:26
+@devlog/web:test:    Duration  34.17s (transform 2.01s, setup 16.05s, collect 5.74s, tests 6.27s, environment 44.41s, prepare 8.94s)
 @devlog/web:test: 
 
  Tasks:    5 successful, 5 total
 Cached:    0 cached, 5 total
-  Time:    37.055s 
+  Time:    36.719s 
 
  WARNING  no output files found for task @devlog/auth#test. Please check your `outputs` key in `turbo.json`
  WARNING  no output files found for task @devlog/db#test. Please check your `outputs` key in `turbo.json`
@@ -111,18 +116,18 @@ Cached:    0 cached, 5 total
  WARNING  no output files found for task @devlog/types#test. Please check your `outputs` key in `turbo.json`
 [ok] tests green
 [start] Building (pnpm build → standalone + postbuild) …
-@devlog/web:build: ✓ Running next.config.ts took 33ms
+@devlog/web:build: ✓ Running next.config.ts took 34ms
 @devlog/web:build: 
 @devlog/web:build:   Creating an optimized production build ...
-@devlog/web:build: ✓ Compiled successfully in 11.8s
+@devlog/web:build: ✓ Compiled successfully in 11.2s
 @devlog/web:build:   Running TypeScript ...
-@devlog/web:build:   Finished TypeScript in 7.5s ...
+@devlog/web:build:   Finished TypeScript in 7.8s ...
 @devlog/web:build:   Collecting page data using 3 workers ...
 @devlog/web:build:   Generating static pages using 3 workers (0/34) ...
 @devlog/web:build:   Generating static pages using 3 workers (8/34) 
 @devlog/web:build:   Generating static pages using 3 workers (16/34) 
 @devlog/web:build:   Generating static pages using 3 workers (25/34) 
-@devlog/web:build: ✓ Generating static pages using 3 workers (34/34) in 835ms
+@devlog/web:build: ✓ Generating static pages using 3 workers (34/34) in 647ms
 @devlog/web:build:   Finalizing page optimization ...
 @devlog/web:build: 
 @devlog/web:build: Route (app)                               Revalidate  Expire
@@ -169,11 +174,11 @@ Cached:    0 cached, 5 total
 
  Tasks:    1 successful, 1 total
 Cached:    0 cached, 1 total
-  Time:    29.014s 
+  Time:    28.103s 
 
 [ok] build complete → /Home1/project/programmer-blog/apps/web/.next/standalone/apps/web/server.js
 [start] Starting standalone server on :3000 (prod, https://programmer-blog.jesspete.shop) …
-[start]   server pid 3685754 → /Home1/project/programmer-blog/server.log
+[start]   server pid 3718373 → /Home1/project/programmer-blog/server.log
 [ok] server ready at http://localhost:3000 (canonical https://programmer-blog.jesspete.shop)
 [start] Health check …
 [start]   ✓ archive http://localhost:3000/archive → 200
@@ -188,7 +193,7 @@ Cached:    0 cached, 1 total
 
 [ok] === Server live ===
   URL:        http://localhost:3000  (canonical https://programmer-blog.jesspete.shop)
-  PID file:   /Home1/project/programmer-blog/server.pid  (pid 3685754)
+  PID file:   /Home1/project/programmer-blog/server.pid  (pid 3718373)
   Log:        /Home1/project/programmer-blog/server.log  (tail -f /Home1/project/programmer-blog/server.log)
   Health:     curl http://localhost:3000/archive  # 9 essays
   Stop:       kill $(cat /Home1/project/programmer-blog/server.pid)  # or: fuser -k 3000/tcp
