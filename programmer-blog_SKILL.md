@@ -135,7 +135,7 @@ Defined in [`apps/web/src/lib/env.ts`](./apps/web/src/lib/env.ts) via Zod. **Thr
 | `BETTER_AUTH_URL` | `z.string().url()` | `http://localhost:3000` | Canonical site URL for auth callbacks. |
 | `RESEND_API_KEY` | `z.string().startsWith('re_').optional()` | — | Resend API key. Optional in dev (degrades gracefully). |
 | `RESEND_FROM` | `z.string().email()` | `onboarding@resend.dev` | From address (must be on verified Resend domain). |
-| `SIGNED_TOKEN_SECRET` | `z.string().min(32).optional()` | — | 32-byte HMAC key for subscribe/unsubscribe/preference transaction tokens (R-62: keyed by this since Pass 6; dev falls back to the session secret). **Required in prod — throws at boot if missing (R-61).** |
+| `SIGNED_TOKEN_SECRET` | `z.string().min(32).optional()` | — | 32-byte HMAC key for transaction tokens (R-62: keyed by this since Pass 6; dev falls back to the session secret). **Required in prod — throws at boot if missing (R-61).** Confirm tokens are v2 purpose-tagged with a 7-day server-enforced TTL (R-80); manage links stay long-lived v1. |
 | `GITHUB_STATS_FALLBACK_STARS` | `z.coerce.number().int()` | `82400` | Used when GitHub API rate-limited. |
 | `GITHUB_STATS_FALLBACK_FORKS` | `z.coerce.number().int()` | `4180` | Used when GitHub API rate-limited. |
 | `CRON_SECRET` | `z.string().optional()` | — | **Reserved** — no cron routes exist yet (R-47 doc sync). |
@@ -929,7 +929,7 @@ window.addEventListener('scroll', onScroll, { passive: true });
 | Error | Cause | Fix |
 |---|---|---|
 | `Error: Invalid environment variables` at boot | Zod env validation failed in prod | Check `.env.local` (dev) or deploy env vars (prod). Required: `BETTER_AUTH_SECRET` (32+), `SIGNED_TOKEN_SECRET` (32+) |
-| `Error: invalid or expired token` on `/api/confirm` | HMAC verification failed | Verify `SIGNED_TOKEN_SECRET` matches across env — transaction tokens are keyed by it (R-62). Pre-R-62 tokens were signed with `BETTER_AUTH_SECRET`; re-subscribe to re-issue. |
+| `Error: invalid or expired token` on `/api/confirm` | HMAC verification failed OR the confirm link is older than the 7-day TTL (R-80) | Verify `SIGNED_TOKEN_SECRET` matches across env — transaction tokens are keyed by it (R-62). Confirm links expire after 7 days (re-subscribe to re-issue); unsubscribe/preferences links are long-lived by design. |
 | `Error: AUTHOR_REQUIRED` in admin route | User is not signed in or not an author | Catch `AuthorRequiredError` and `redirect('/admin/login')` or `notFound()` |
 | `Error: Too many comments. Try again later.` | Rate limit hit (10 per IP per hour) | Wait 1 hour or restart the dev server (clears in-memory bucket via `__resetRateLimit()` in tests) |
 | Resend: `RESEND_API_KEY not configured. Email not sent.` | No API key in env | Set `RESEND_API_KEY=re_test_...` in `.env.local`. Dev sandbox accepts test keys. |
@@ -1027,7 +1027,7 @@ console.log('Env OK');
 "
 ```
 
-Required in prod (throw at BOOT since R-61): `BETTER_AUTH_SECRET` (32+ chars), `SIGNED_TOKEN_SECRET` (32+ chars). Production seeding additionally requires `DEV_AUTHOR_PASSWORD` (R-57). Optional: `RESEND_API_KEY`, `CRON_SECRET`.
+Required in prod (throw at BOOT since R-61): `BETTER_AUTH_SECRET` (32+ chars), `SIGNED_TOKEN_SECRET` (32+ chars). Production seeding additionally requires `DEV_AUTHOR_PASSWORD` at **≥16 chars** (R-57 + R-92). Optional: `RESEND_API_KEY`, `CRON_SECRET`. **Empty = unset (R-73):** present-but-empty vars are normalized to absent before Zod parses — the `cp .env.example .env.local` quick start builds cleanly with only the two secrets filled.
 
 ### 11.4 Post-Deployment Smoke Tests
 
@@ -1305,6 +1305,46 @@ See `apps/web/src/app/layout.tsx:60-97`.
 **How to avoid:** (a) keep `'use server'` modules action-only and pin the contract with the `use-server-exports-scan.test.ts` source scan; (b) treat any absolute URL baked into prerendered HTML as build-config-owned — CI builds must run with `NEXT_PUBLIC_SITE_URL` set, and URL-bearing surfaces export `revalidate = 3600` so fresh deploys self-heal (pinned by `revalidate-contract.test.ts`); (c) verify every fix against a like-for-like standalone production build, not just `pnpm dev`.
 
 ---
+
+### 12.26 L26 — Present-but-Empty Env Vars Are Not Absent (Pass 7, H-40)
+
+**What happened:** the documented quick start (`cp .env.example .env.local`, fill two secrets, `pnpm build`) produced a build-time throw: `Invalid environment variables: RESEND_API_KEY: Invalid input: must start with "re_"`. The template ships `RESEND_API_KEY=` **empty**; Zod's `.optional()` accepts absent but fails present-but-empty values, and production turns validation failures into a boot throw (R-61).
+
+**Why it mattered:** the canonical deployment path crashed with a misleading error for every fresh-clone operator; `start_server.sh` inherited the trap.
+
+**How to avoid:** normalize `'' → undefined` across `process.env` before `safeParse` ("empty = unset", `withEmptyVarsUnset` in `lib/env.ts`). When a validator's semantics are "may be unset", test the PRESENT-BUT-EMPTY case explicitly — `.optional()` alone does not cover it.
+
+### 12.27 L27 — A pointer-events:none Element Can Never Be an Event Target (Pass 7, M-53)
+
+**What happened:** the hero mouse-glow attached its listeners to an overlay rendered with `style={{ pointerEvents: 'none' }}`. In every real browser the glow was dead code from Phase 3 onward — while its unit test stayed green.
+
+**Why it mattered:** jsdom has no hit-testing, so dispatching an event directly on the node fires listeners regardless of `pointer-events`; only a composition test (render the REAL parent/child structure, dispatch on the parent) reproduces browser reality.
+
+**How to avoid:** when an overlay must be pointer-transparent, its listeners belong on an ancestor that receives events (`useMouseGlow({ track: 'parent' })`). Composition tests must dispatch from outside the tested component, not on its internal nodes.
+
+### 12.28 L28 — Destructive Writes Must Not Ride on GET (Pass 7, H-42)
+
+**What happened:** `/unsubscribe` performed the `status → unsubscribed` DB write inside the server-component render (a GET). Email clients and corporate sanitizers prefetch links — users were silently unsubscribed without clicking.
+
+**How to avoid:** GET verifies and renders; POST mutates. The confirmation form posts to the `confirmUnsubscribe` Server Action (token-gated, idempotent). Any page whose render path calls `db.update`/`db.delete`/`db.insert` is a bug — grep for it in review.
+
+### 12.29 L29 — Canonical Metadata Inherits Through Layouts (Pass 7, M-52)
+
+**What happened:** `/archive`, `/archive/page/[page]` and `/snippets` defined `metadata` without `alternates`, so Next's shallow merge inherited the root layout's `canonical: '/'` — crawlers were told every indexable listing page was a duplicate of the homepage.
+
+**How to avoid:** every public indexable page declares its own `alternates.canonical`. Pin it with a metadata-contract test (`await import('./page')` → `metadata.alternates.canonical`) — no render needed.
+
+### 12.30 L30 — The First X-Forwarded-For Entry Is the Attacker's (Pass 7, M-50)
+
+**What happened:** the rate limiter keyed on `xff.split(',')[0]`. Appending proxies (nginx `$proxy_add_x_forwarded_for`, Cloudflare) put the proxy-observed client LAST — so the first entry was whatever the client sent, and every per-IP limit was bypassable by rotating a header.
+
+**How to avoid:** take the rightmost non-empty XFF entry (the only hop not received verbatim from the client), then `x-real-ip`, then a shared `'unknown'` bucket. Any "trust a header" decision needs a comment stating WHICH proxy wrote it and why that is trustworthy.
+
+### 12.31 L31 — React 19 Nulls `event.currentTarget` After the Dispatch (Pass 7, M-51)
+
+**What happened:** the subscribe form read `e.currentTarget.querySelector(...)` after `await subscribeToNewsletter(...)`. React 19's `executeDispatch` sets `currentTarget = null` once the synchronous listener returns → `TypeError: Cannot read properties of null` on EVERY successful subscribe, invisible to unit tests that never exercised the full async flow.
+
+**How to avoid:** capture `const form = e.currentTarget;` before the first `await` in any event handler. Never touch synthetic-event properties after an await boundary.
 
 ## 13. Pitfalls to Avoid
 
@@ -2028,10 +2068,23 @@ export const env: Env;
 export const SESSION_COOKIE = 'devlog_session';
 export const SESSION_TTL = 60 * 60 * 24 * 30; // 30 days, in seconds
 
-export function createSessionToken(userId: string): string;
-export function verifySessionToken(token: string): string | null;
-export function signToken(payload: string): string;
-export function verifyToken(token: string, expectedPayload: string): boolean;
+export function createSessionToken(userId: string): Promise<string>;
+export function verifySessionToken(token: string): Promise<string | null>;
+// v1 transaction tokens (long-lived; unsubscribe/preferences manage links)
+export function signToken(payload: string): Promise<string>;
+export function verifyToken(token: string, expectedPayload: string): Promise<boolean>;
+// R-80 (Pass 7): purpose-tagged transaction tokens with TTL on confirm
+export type TransactionPurpose = 'confirm' | 'manage';
+export const CONFIRM_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
+export function createTransactionToken(
+  payload: string,
+  purpose: TransactionPurpose,
+): Promise<string>;
+export function verifyTransactionToken(
+  token: string,
+  expectedPayload: string,
+  expectedPurpose: TransactionPurpose,
+): Promise<boolean>;
 ```
 
 ```typescript

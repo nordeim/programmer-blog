@@ -5,7 +5,7 @@
 [![TypeScript 5.9](https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS v4](https://img.shields.io/badge/Tailwind-v4-38bdf8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![pnpm](https://img.shields.io/badge/pnpm-9.15-f69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
-[![Tests: 405](https://img.shields.io/badge/tests-399-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
+[![Tests: 459](https://img.shields.io/badge/tests-459-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
 [![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red)](#license)
 
 > Notes from a programmer's desk — on code, systems, and the strange joy of debugging at 2am.
@@ -67,6 +67,8 @@ Current audit posture: **0 vulnerabilities** in `pnpm audit --prod` — 0 critic
 **Pass 4 (2026-09-04, live E2E re-audit):** a second browser E2E + security review (`code-review-and-audit` deep mode) found the production deployment silently booting against an **empty database** — better-sqlite3 auto-creates a missing `devlog.db`, so `/archive` and `/posts/[slug]` 500-ed while the landing page (hardcoded mockup fallbacks) masked the outage (C-36) — and the production login page **publicly printing the seeded dev credentials** with no environment gating (C-35). Both are fixed (R-38 fail-fast DB client, R-37 env-gated hint), alongside server-side session expiry (R-39), real-IP rate limiting for comments/subscribe (R-40), a localhost-URL boot warning (R-41), CSV formula-injection guard (R-45), JSON-LD script escaping (R-44), and a GitHub fetch timeout (R-43). Full findings, evidence and E2E table in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 4 Addendum"; tasks in `REMEDIATION_PLAN.md` §10. The deployment itself still requires the operator to set an absolute `DATABASE_PATH`, run migrations + seed, and set `NEXT_PUBLIC_SITE_URL` — see the checklist below.
 
 **Pass 5 (2026-09-04, live E2E verification of the remediated deployment):** with a working seeded database on the live site, a fresh browser E2E verified every Pass 4 fix (C-31/C-35/C-36/R-34 hold) and uncovered **C-37** — every Server Action mutation (`createComment`, `createPost`, `updatePost`, `deletePost`, `moderateComment`, `updateSiteSettings`) 500-ed in production because `'use server'` files exported Zod schema objects, which Next.js 16 forbids (module-evaluation throw invisible to the unit suite). Fixed in R-48 (schemas moved to plain modules + a source-scan regression test), alongside real tags in the archive (R-50/R-51), a tags-in-use filter dropdown, hourly revalidation for prerendered URL-bearing surfaces so canonical/OG URLs stop advertising the build machine's localhost (R-49/R-52), a mobile grid-blowout fix landed mockup-first (R-53), single-`<h1>` post pages (R-54), and calmer unsubscribe error copy (R-55). Full findings, evidence and the live E2E table in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 5 Addendum"; tasks in `REMEDIATION_PLAN.md` §11.
+
+**Pass 7 (2026-09-04, tiered review + security audit + live E2E):** the third full `code-review-and-audit` deep pass plus a fresh browser E2E verified every Pass 3–6 fix still holds, then found **C-41** — the tracked `.env.local.example` file carried the production-faithful secret set (session/token HMAC secrets, a filled author password, the real deployment host) under a `.example` name (placeholders now; mandatory operator rotation recorded) — and **H-40**, where present-but-empty env vars (`RESEND_API_KEY=` from the documented quick start) crashed every production build (fixed in R-73: empty = unset). Also fixed: the unsubscribe page performed its destructive DB write during the GET render, so email prefetchers could silently unsubscribe users (H-42 → POST-only via a `confirmUnsubscribe` Server Action); transaction tokens gained a purpose-tagged 7-day TTL on confirm links (M-54); the live `robots.txt` advertised a stale localhost sitemap URL from a 24h CDN cache pinned by the route's own `s-maxage=86400` (M-49 → hourly, live-verified via cache-bust A/B); rate-limit keys took the attacker-set first `X-Forwarded-For` entry (M-50 → rightmost hop); the subscribe form threw `TypeError: null currentTarget` after `await` on every success (M-51, React 19); `/archive` + `/snippets` inherited the homepage canonical (M-52); the hero mouse-glow was dead code attached to a `pointer-events: none` overlay (M-53); CSP gained `base-uri`/`object-src`/`form-action` (M-55); plus a unique post-tag index (L-45), `updatePost` invariants (L-46), a CSV tab/CR guard (L-47), query guards (L-48), a scoped comments-page query (L-49), site-relative `rssUrl` acceptance (L-50), email sandbox-key handling (L-51), a typewriter tab-visibility resume (L-52), Tailwind literal cleanup (L-53), and operator-hygiene fixes (L-54/L-55). Full findings and evidence in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 7 Addendum"; tasks in `REMEDIATION_PLAN.md` §13.
 
 **Pass 6 (2026-09-04, tiered code review + security audit):** a full `code-review-and-audit` deep pass (static analysis → OWASP security scan → 12-category quality checklist → tests → expert review) plus a fresh live E2E verified every Pass 3–5 fix still holds, then found **C-38** — the production seed path (`bash start_server.sh` → `pnpm db:seed`) created the author account with the publicly-known `dev-password-12345` fallback (fixed in R-57: the seed now refuses to seed prod without `DEV_AUTHOR_PASSWORD`, and the start script generates a strong random one) — and **H-39**, a Server-Action argument (`ctx.ip`) that let callers spoof the rate-limit key (fixed in R-58: the IP is read from proxy headers only). Also fixed: unbounded rate-limit store growth (R-59), an open redirect on `/admin/login?next=` for signed-in authors (R-60), boot-time enforcement of missing production secrets (R-61), `SIGNED_TOKEN_SECRET` actually keying transaction tokens per the documented contract (R-62), two 5-layer golden-rule violations + a new layer-boundary scan test (R-63), double `<h1>` on snippet pages (R-64), http(s)-only social URLs (R-65), wildcard-safe search on the live `?q=` path (R-66), and several Low/info cleanups (R-67..R-69). And a third Critical, **C-40**: a force-added `.env.local` tracked real secrets in the public repo — untracked in R-71, with **mandatory operator rotation** of `BETTER_AUTH_SECRET`/`SIGNED_TOKEN_SECRET`/`DEV_AUTHOR_PASSWORD` (the committed session key enables admin-cookie forgery on the live site until rotated). The committed SSH key remains an explicit operator workflow (risk-accepted with rotation/deploy-key follow-ups). Full evidence in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 6 Addendum"; tasks in `REMEDIATION_PLAN.md` §12.
 
@@ -236,8 +238,8 @@ pnpm check         # = check-types && lint && test:coverage && audit --prod && b
 |---|---|
 | `pnpm check-types` | `0 errors` across all 5 packages |
 | `pnpm lint` | `0 errors` (0 warnings) |
-| `pnpm test` | `405 tests passing` across all packages |
-| `pnpm build` | Standalone build at `apps/web/.next/standalone/` |
+| `pnpm test` | `459 tests passing` across all packages |
+| `pnpm build` | Standalone build at `apps/web/.next/standalone/` (27 routes) |
 | `pnpm dev` → http://localhost:3000 | Landing page with dark theme + typewriter + marquee |
 
 ## Production Start Script (Fresh Clone)
@@ -279,7 +281,7 @@ bash start_server.sh          # from repo root (or ./start_server.sh)
 | `GITHUB_STATS_FALLBACK_STARS` | Used when GitHub API rate-limited | No | `82400` |
 | `GITHUB_STATS_FALLBACK_FORKS` | Used when GitHub API rate-limited | No | `4180` |
 | `CRON_SECRET` | **Reserved** — no cron routes exist yet | No | — |
-| `DEV_AUTHOR_PASSWORD` | Password for the seeded author (login-page hint renders in development only, R-37). **Production seeds throw without it** (R-57); `start_server.sh` generates a strong random one automatically | No (dev) / **Yes (prod seed)** | — |
+| `DEV_AUTHOR_PASSWORD` | Password for the seeded author (login-page hint renders in development only, R-37). **Production seeds throw without it or under 16 chars** (R-57 + R-92); `start_server.sh` generates a strong random one automatically | No (dev) / **Yes (prod seed)** | — |
 
 ### Public (inlined by Next.js, safe in client components)
 
@@ -289,7 +291,7 @@ bash start_server.sh          # from repo root (or ./start_server.sh)
 | `NEXT_PUBLIC_GITHUB_REPO` | `owner/repo` for the nav star pill | `tailwindlabs/tailwindcss` |
 | `NEXT_PUBLIC_AUTHOR_EMAIL` | Author email for footer mailto link | `hi@devlog.example` |
 
-**Access pattern:** Never read `process.env.FOO` directly in feature/component code. Always go through `apps/web/src/lib/env.ts`. Public vars (`NEXT_PUBLIC_*`) are inlined by Next.js and safe to read in client components.
+**Access pattern:** Never read `process.env.FOO` directly in feature/component code. Always go through `apps/web/src/lib/env.ts`. **Empty string = unset (R-73, Pass 7):** present-but-empty vars are normalized to absent, so the documented `cp .env.example .env.local` quick start builds cleanly with only the two secrets filled. Public vars (`NEXT_PUBLIC_*`) are inlined by Next.js and safe to read in client components.
 
 ## Routes Implemented
 
@@ -306,7 +308,7 @@ bash start_server.sh          # from repo root (or ./start_server.sh)
 | `/rss.xml` | Public | RSS 2.0 feed (rewrite → `/api/rss.xml`, R-34) |
 | `/sitemap.xml` | Public | Sitemap (rewrite → `/api/sitemap.xml`, R-34) |
 | `/robots.txt` | Public | Robots (rewrite → `/api/robots.txt`, R-34) |
-| `/unsubscribe` | Public | Token-verified unsubscribe page |
+| `/unsubscribe` | Public | Token-verified unsubscribe page — GET renders a confirmation form; the write happens via the `confirmUnsubscribe` Server Action (R-74: email-prefetch-safe) |
 | `/preferences` | Public | Subscriber preferences |
 | `/api/confirm` | Public | Subscribe token verification |
 | `/api/github-stats` | Public | Cached GitHub stats (60s TTL) |
@@ -365,9 +367,9 @@ Every code change follows **Red → Green → Refactor**:
 
 - ✅ `pnpm check-types` — 0 errors across all 5 packages
 - ✅ `pnpm lint` — 0 errors, 0 warnings
-- ✅ `pnpm test` — 405 tests passing across all packages (322 web / 33 db / 26 auth / 21 types / 3 email)
+- ✅ `pnpm test` — 459 tests passing across all packages (355 web / 41 db / 37 auth / 21 types / 5 email)
 - ✅ `pnpm test:coverage` — ~65% lines vs staged regression thresholds (80% target tracked as R-30)
-- ✅ `pnpm build` — 25 routes (16.3.4), `postbuild` copies `.next/static` + `public/` into `.next/standalone/` (R-33) — `proxy.ts` Edge, Web Crypto, no `node:crypto` warning
+- ✅ `pnpm build` — 27 routes (16.3.4), `postbuild` copies `.next/static` + `public/` into `.next/standalone/` (R-33) — `proxy.ts` Edge, Web Crypto, no `node:crypto` warning
 - ✅ `pnpm audit --prod` — **0 vulnerabilities** (`pnpm.overrides` via `pnpm-workspace.yaml` + `package.json`; `pnpm` field warning accepted on 9.15.4)
 
 ### Production deploy (standalone) — R-33 + Pass 4
@@ -462,7 +464,7 @@ Full troubleshooting in `skills/how-to-git-push-using-ssh-wrapper/SKILL.md`.
 | 5. Subscribe + email | ✅ Complete | Server Action, Zod schema, sliding-window rate limiter, Resend integration |
 | 6. Auth + admin | ✅ Complete | `proxy.ts` (was `middleware.ts`), login page, admin dashboard, post editor |
 | 7. Admin (subscribers + comments + settings) | ✅ Complete | CSV export, comment moderation, settings form, RSS/sitemap/robots |
-| 8. Validation + hardening | 🚧 In progress | Pass 5 (R-48..R-56) + Pass 6 tiered audit & remediation (R-57..R-70) complete; production checklist hardened — see the deploy steps above |
+| 8. Validation + hardening | 🚧 In progress | Passes 5–7 (R-48..R-93) complete, incl. live E2E and a third full security audit; production checklist hardened — see the deploy steps above |
 
 **Overall progress:** ~90% of the MEP shipped. The remaining work is hardening, security notes, and E2E test coverage (Playwright, deferred).
 

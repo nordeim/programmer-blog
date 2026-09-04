@@ -115,7 +115,7 @@ A layer may only import from layers *below* it or from its own layer:
   - `src/index.ts` — `signIn` / `getSession` / `requireAuthor` / `signOut` (Node-only: Drizzle + better-sqlite3). `getSessionFromCookies` uses `next/headers` (peer dep).
   - `src/tokens.ts` — edge-safe HMAC-SHA256 via **Web Crypto `crypto.subtle`** (`async`, `timingSafeEqualHex`, no `node:crypto`/`Buffer`). Exports `SESSION_COOKIE`, `createSessionToken()`, `verifySessionToken()`, `signToken()`, `verifyToken()` (all `async`).
   - `src/password.ts` — scrypt `hashPassword()` / `verifyPassword()` (format `scrypt:N:r:p:salt:hash`).
-- **Session cookie:** `devlog_session` (named via `SESSION_COOKIE` constant). Token v2 format (R-39): `<userId>.<iat-seconds>.<hmac(userId.iat)>` — `verifySessionToken` enforces the 30-day TTL **server-side**; legacy 2-part tokens are rejected.
+- **Session cookie:** `devlog_session` (named via `SESSION_COOKIE` constant). Token v2 format (R-39): `<userId>.<iat-seconds>.<hmac(userId.iat)>` — `verifySessionToken` enforces the 30-day TTL **server-side**; legacy 2-part session tokens are rejected. **Transaction tokens** (R-80, Pass 7): confirm links are v2 `<subscriberId>.<iat>.confirm.<hmac>` with a server-enforced **7-day TTL**; unsubscribe/preferences links stay long-lived v1 (`<subscriberId>.<hmac>`) so links already in inboxes keep working — `verifyTransactionToken(token, id, purpose)` enforces the purpose split (a confirm token cannot manage a subscription and vice versa).
 - **Role enum** (as `as const` union, not `enum`): `'author' | 'subscriber'` on `users.role` (schema mirror in `@devlog/types`). Only `author` may access `/admin/*` — enforced by `requireAuthor()` in the **`(dashboard)` shell layout** (`src/app/(auth)/admin/(dashboard)/layout.tsx`, R-31 route group — the login page renders outside it); the edge `proxy` only verifies the session HMAC (`await verifySessionToken`).
 - **Secrets:** `BETTER_AUTH_SECRET` (env name kept for compat) MUST be ≥32 chars in production or `getSecret()` throws.
 
@@ -123,7 +123,7 @@ A layer may only import from layers *below* it or from its own layer:
 
 - **Location:** `apps/web/src/features/{feature}/actions.ts` with `'use server'` at the top.
 - **Async-function exports only (R-48, review-blocking):** a `'use server'` file may export **only async functions**. Exporting a Zod schema object, a constant, or re-exporting one (`export { schema }`) makes the Server Actions loader throw `A "use server" file can only export async functions, found object.` at module-evaluation time — which 500s **every** action in that file while unit tests stay green (audit C-37: all six mutations were dead in production this way). Shared schemas live in plain modules: `@devlog/types` and `features/{feature}/schemas.ts`. `use-server-exports-scan.test.ts` enforces this.
-- **Return shape:** discriminated union — `{ status: 'ok', data } | { status: 'error', fieldErrors?, message? }`. **Never throw** across the network boundary.
+- **Return shape:** discriminated union — `{ ok: true, message?, data? } | { ok: false, error, fieldErrors? }` (as-built Pass 7 doc sync, R-94; the pre-Pass-2 `{ status: … }` shape no longer exists). **Never throw** across the network boundary.
 - **Validate every input with Zod.** Never read `FormData` without parsing through a schema.
 - **Auth check first.** Call `requireAuthor(cookieValue)` from `@/lib/auth` (or `verifySessionToken()` from `@devlog/auth/tokens` on the edge) — never hand-parse the session cookie yourself.
 
@@ -162,7 +162,7 @@ The wrapper is Paramiko-based and handles the `shlex.join()` quoting bug that br
 
 **Never read `process.env.FOO` directly** in feature/component code. Use `apps/web/src/lib/env.ts` (Zod-validated, throws at boot in prod). 13 vars total (plus `NODE_ENV`) — see `.env.example` for the full list with comments. Public vars (`NEXT_PUBLIC_*`) are inlined by Next.js and safe to read in client components.
 
-**Required in prod (throw at boot if missing, R-61/M-45): `BETTER_AUTH_SECRET` (32+ chars) and `SIGNED_TOKEN_SECRET` (32+ chars).** `SIGNED_TOKEN_SECRET` keys the transaction tokens (subscribe confirm/unsubscribe/preferences) since R-62/M-46 — session cookies stay keyed by `BETTER_AUTH_SECRET`; in dev the transaction tokens fall back to the session secret. Optional in dev: `RESEND_API_KEY` (subscribe flow degrades gracefully without it), `DEV_AUTHOR_PASSWORD` (overrides the seeded dev author password; the login-page credentials hint renders in **development only**, R-37; **production seeds refuse the public default without it**, R-57/C-38 — `start_server.sh` generates a strong one automatically). `CRON_SECRET` is reserved — no cron routes exist yet. In production, a localhost `NEXT_PUBLIC_SITE_URL` triggers a loud boot warning (R-41) — set it to the real origin.
+**Required in prod (throw at boot if missing, R-61/M-45): `BETTER_AUTH_SECRET` (32+ chars) and `SIGNED_TOKEN_SECRET` (32+ chars).** **Empty = unset (R-73/H-40):** a present-but-empty env var (`RESEND_API_KEY=`) is normalized to absent before Zod parsing — the documented `cp .env.example .env.local` quick start no longer crashes prod builds. Production seeds require a `DEV_AUTHOR_PASSWORD` of **≥16 chars** (R-92). `SIGNED_TOKEN_SECRET` keys the transaction tokens (subscribe confirm/unsubscribe/preferences) since R-62/M-46 — session cookies stay keyed by `BETTER_AUTH_SECRET`; in dev the transaction tokens fall back to the session secret. Optional in dev: `RESEND_API_KEY` (subscribe flow degrades gracefully without it), `DEV_AUTHOR_PASSWORD` (overrides the seeded dev author password; the login-page credentials hint renders in **development only**, R-37; **production seeds refuse the public default without it**, R-57/C-38 — `start_server.sh` generates a strong one automatically). `CRON_SECRET` is reserved — no cron routes exist yet. In production, a localhost `NEXT_PUBLIC_SITE_URL` triggers a loud boot warning (R-41) — set it to the real origin.
 
 ## Don't Do This
 
@@ -177,8 +177,24 @@ The wrapper is Paramiko-based and handles the `shlex.join()` quoting bug that br
 - Export a non-async value (schema, constant, class, re-export) from a `'use server'` file — see Server Actions above (R-48).
 - Modify `skills/**` — these are read-only reference skills, not part of the project.
 - Read the session cookie via the literal `'devlog_session'` — always use the `SESSION_COOKIE` constant (a source-scan test fails the suite otherwise, R-42).
-- Read a client-supplied IP in a Server Action — the rate-limit key comes from `getClientIpFromHeaders(await headers())` ONLY; `ctx.ip`-style arguments are attacker-serializable (R-58/H-39, pinned by `server-action-ip-scan.test.ts`).
+- Read a client-supplied IP in a Server Action — the rate-limit key comes from `getClientIpFromHeaders(await headers())` ONLY; `ctx.ip`-style arguments are attacker-serializable (R-58/H-39, pinned by `server-action-ip-scan.test.ts`). The key is the **rightmost** `X-Forwarded-For` entry (R-76/M-50 — appending proxies put the proxy-observed client last; the first entry is attacker-set).
 - Import `@/features/*` from `lib/`, or another feature's internals from a feature — layer boundaries are pinned by `layer-boundary-scan.test.ts` (R-63/M-47); the only exception is another feature's public API (`actions.ts`/`schemas.ts`).
 - Ship `LIKE '%query%'` search over user input — SQLite treats `%`/`_` as wildcards and drizzle's `like()` has no `ESCAPE`; use the `instr()`-based `buildSearchCondition` in `packages/db/src/queries.ts` (R-66/L-41).
 - Seed a production DB without `DEV_AUTHOR_PASSWORD` — `runSeed()` throws rather than using the public dev default (R-57/C-38).
 - Commit `.env.local` — it is gitignored and must stay untracked; it was once force-added with real secrets (C-40, R-71). Secrets live in the deploy environment only.
+
+
+## Pass 7 doc sync (R-94, 2026-09-04)
+
+Tiered review + live E2E (Pass 7) remediated C-41, H-40, H-42, M-49..M-55 and L-45..L-56 (R-72..R-93). Contract changes an agent must know:
+
+- **Server Action return shape is `{ ok: true/false, … }`** — not the `{ status: … }` shape this file documented before Pass 7.
+- **Empty env var = unset** (R-73). Do not rely on `RESEND_API_KEY=''` failing validation.
+- **Transaction token v2** for confirmations (7-day TTL, purpose-tagged, R-80); manage links long-lived. Confirm email copy says "7 days".
+- **Unsubscribe is POST-only** (R-74): `/unsubscribe` GET renders a confirmation form; only `confirmUnsubscribe` (in `features/subscribe/actions.ts`) writes. Never re-introduce a DB write during render.
+- **`/robots.txt` ships hourly `Cache-Control`** matching its ISR (R-75) — keep feed cache policies consistent.
+- **`posts_to_tags` has a unique (post, tag) index** (R-82) — dedupe `tagSlugs` before inserting join rows.
+- **`.env.local.example` is placeholder-only** (R-72/C-41) and pinned by `env-example-scan.test.ts`; never commit real values to any tracked file.
+- **CSP now pins `base-uri 'self'; object-src 'none'; form-action 'self'`** (R-81).
+- Per-page **`alternates.canonical`** on `/archive`, `/archive/page/[page]`, `/snippets` (R-78) — new public pages must declare their own canonical.
+- **Hero mouse-glow tracks the parent hero section** (`useMouseGlow({ track: 'parent' })`, R-79) — a `pointer-events: none` overlay can never be an event target in a real browser.

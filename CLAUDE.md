@@ -2,8 +2,8 @@
 IMPORTANT: File is read fresh for every conversation. Be brief and practical.
 project_type: nextjs-monorepo
 framework: next.js-16-app-router
-last_updated: 2026-09-04
-# Revalidated 2026-09-04 — Pass 6 remediation (R-57..R-70): prod seed guard, server-side rate-limit keys, rate-limit eviction, login open-redirect, boot-time secret enforcement, SIGNED_TOKEN_SECRET wiring, layer-boundary scan, snippet single-h1, search hardening
+last_updated: 2026-09-04 (Pass 7)
+# Revalidated 2026-09-04 — Pass 7 remediation (R-72..R-93): placeholder-only env templates (C-41), empty-env=unset normalization (H-40), POST-only unsubscribe (H-42), purpose-tagged TTL'd transaction tokens, robots cache alignment, rightmost-XFF rate-limit keys, React 19 currentTarget fix, canonical overrides, CSP base-uri/object-src/form-action, unique post-tag index
 ---
 
 # `/dev/log` — Programmer Blog
@@ -105,6 +105,7 @@ Follow for all implementation tasks:
   - `src/password.ts` — scrypt hashing (N=2^15, r=8, p=1, format `scrypt:N:r:p:salt:hash`, `timingSafeEqual`).
   - `src/index.ts` — DB-backed `signIn` / `getSession` / `requireAuthor` (role gate) / `getSessionFromCookies` (uses `next/headers`; `next` is a peerDependency).
 - **Session cookie name:** `devlog_session` (exported as `SESSION_COOKIE` from `@devlog/auth/tokens`; always read it via the constant — never hardcode the string).
+- **Transaction tokens (R-80, Pass 7):** confirm links are v2 `<subscriberId>.<iat>.confirm.<hmac>` with a server-enforced 7-day TTL; unsubscribe/preferences links stay long-lived v1. Verify with `verifyTransactionToken(token, id, 'confirm' | 'manage')` — purposes are separated.
 - **Role enum** is `'author' | 'subscriber'` (stored on `users.role`, schema also in `@devlog/types`). `author` can access `/admin/*`; `subscriber` cannot. The guarded admin shell lives at `(auth)/admin/(dashboard)/layout.tsx` — a route group so `/admin/login` renders OUTSIDE it (R-31: the old monolithic layout caused an infinite `/admin/login` redirect loop via an `x-pathname` header sniff). The edge `proxy` only verifies the session HMAC (`await verifySessionToken`).
 - **Production secret policy:** `getSecret()` throws when `BETTER_AUTH_SECRET` is missing/<32 chars in production (R-5).
 
@@ -287,7 +288,7 @@ The wrapper is Paramiko-based and handles the `shlex.join()` quoting bug that br
 
 ### Error Handling Approach
 
-- **Server Actions** return discriminated unions: `{ status: 'ok', data } | { status: 'error', fieldErrors } | { status: 'error', message }`. Never throw across the network boundary.
+- **Server Actions** return discriminated unions: `{ ok: true, message?, data? } | { ok: false, error, fieldErrors? }` (as-built Pass 7 sync, R-94). Never throw across the network boundary.
 - **API routes** return `NextResponse.json({ error: '...' }, { status: 4xx })`. Validation errors are 400, auth failures 401, not-found 404, server errors 500.
 - **`error.tsx`** boundary catches route render errors. `not-found.tsx` handles 404s.
 - **`apps/web/src/app/error.tsx`** must never import server-only code.
@@ -382,7 +383,7 @@ Packages (@devlog/db, @devlog/auth, @devlog/email, @devlog/types, @devlog/config
 | `CRON_SECRET` | Reserved for future `POST /api/cron/*` endpoints — **no cron routes exist yet** | No |
 | `DEV_AUTHOR_PASSWORD` | Password for the seeded author. Dev-only override (login-page hint renders in development only, R-37). **Production seeds throw without it** (R-57/C-38); `start_server.sh` generates one automatically | No (dev) / **Yes (prod seed)** |
 
-**Access pattern:** Never read `process.env.FOO` directly in feature code. Use `apps/web/src/lib/env.ts` (Zod-validated, throws at boot in prod). Public vars (`NEXT_PUBLIC_*`) are inlined by Next.js and safe to read in client components.
+**Access pattern:** Never read `process.env.FOO` directly in feature code. Use `apps/web/src/lib/env.ts` (Zod-validated, throws at boot in prod). **Empty string = unset (R-73):** present-but-empty vars are normalized to absent, so the `cp .env.example .env.local` quick start boots without filling optional vars. Public vars (`NEXT_PUBLIC_*`) are inlined by Next.js and safe to read in client components.
 
 ---
 
