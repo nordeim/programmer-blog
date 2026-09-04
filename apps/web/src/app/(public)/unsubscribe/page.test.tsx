@@ -30,7 +30,7 @@ vi.mock('@/lib/db', () => ({
 const verifyTokenMock = vi.fn(async () => false);
 
 vi.mock('@devlog/auth', () => ({
-  verifyToken: (...args: unknown[]) => verifyTokenMock(...(args as [])),
+  verifyTransactionToken: (...args: unknown[]) => verifyTokenMock(...(args as [])),
 }));
 
 import UnsubscribePage from './page';

@@ -83,7 +83,7 @@ export const ConfirmEmail: React.FC<ConfirmEmailProps> = ({
             {email}
           </Text>
           <Text style={{ fontSize: '14px', lineHeight: '1.6', color: '#a1a1aa' }}>
-            click the button below to confirm. the link expires in 24 hours.
+            click the button below to confirm. the link expires in 7 days.
           </Text>
           <Section style={{ textAlign: 'center', marginTop: '24px', marginBottom: '24px' }}>
             <Button

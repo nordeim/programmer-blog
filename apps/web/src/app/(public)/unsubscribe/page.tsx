@@ -11,7 +11,7 @@
  * Per PAD §3.3 Pattern 6 + Pattern 4.
  */
 import 'server-only';
-import { verifyToken } from '@devlog/auth';
+import { verifyTransactionToken } from '@devlog/auth';
 import { eq } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -44,7 +44,9 @@ export default async function UnsubscribePage({ searchParams }: UnsubscribePageP
       error = 'invalid or expired token';
     } else {
       const subscriberId = token.slice(0, sep);
-      if (!(await verifyToken(token, subscriberId))) {
+      // R-80: manage purpose — accepts the current v1 long-lived links
+      // already in subscribers' inboxes plus newer v2 manage tokens.
+      if (!(await verifyTransactionToken(token, subscriberId, 'manage'))) {
         error = 'invalid or expired token';
       } else {
         try {

@@ -11,10 +11,11 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sendEmailMock, rateLimitMock, signTokenMock } = vi.hoisted(() => ({
+const { sendEmailMock, rateLimitMock, signTokenMock, createTransactionTokenMock } = vi.hoisted(() => ({
   sendEmailMock: vi.fn(),
   rateLimitMock: vi.fn<(key: string, max: number, windowSeconds: number) => Promise<boolean>>(),
   signTokenMock: vi.fn<(id: string) => string>(),
+  createTransactionTokenMock: vi.fn<(id: string) => string>(),
 }));
 
 // Drizzle query builder mock — capture the chained calls.
@@ -47,6 +48,7 @@ vi.mock('@/lib/rate-limit', () => ({
 
 vi.mock('@/lib/auth', () => ({
   signToken: (id: string) => signTokenMock(id),
+  createTransactionToken: (id: string) => createTransactionTokenMock(id),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -96,6 +98,10 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
   rateLimitMock.mockResolvedValue(true);
   signTokenMock.mockImplementation((id: string) => `${id}.deadbeef`);
+  // R-80: v2 confirm token mock — `<id>.<iat>.confirm.<mac>`.
+  createTransactionTokenMock.mockImplementation(
+    (id: string) => `${id}.${Math.floor(Date.now() / 1000)}.confirm.deadbeef`,
+  );
 });
 
 describe('subscribeToNewsletter (R-3 / R-4)', () => {
@@ -111,7 +117,8 @@ describe('subscribeToNewsletter (R-3 / R-4)', () => {
       ok: true,
       message: 'Welcome aboard. Confirmation pending in your inbox.',
     });
-    // Email is lowercased before the DB lookup.
+    // Email is lowercased before the DB lookup. R-80: the confirm link
+    // carries the v2 purpose-tagged token; the manage link stays v1.
     expect(sendEmailMock).toHaveBeenCalledWith(
       expect.objectContaining({
         to: 'alex@devlog.example',
@@ -119,7 +126,9 @@ describe('subscribeToNewsletter (R-3 / R-4)', () => {
         template: 'confirm-email',
         props: {
           email: 'alex@devlog.example',
-          confirmUrl: 'http://localhost:3000/api/confirm?token=sub-1.deadbeef',
+          confirmUrl: expect.stringMatching(
+            /^http:\/\/localhost:3000\/api\/confirm\?token=sub-1\.\d{10}\.confirm\.deadbeef$/,
+          ),
           unsubscribeUrl: 'http://localhost:3000/unsubscribe?token=sub-1.deadbeef',
         },
       }),

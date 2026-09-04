@@ -9,7 +9,8 @@
  *   - valid token + already-confirmed → 200 'already subscribed'
  *   - valid token + pending subscriber → 302 to /?subscribed=1 + DB updated
  *
- * @devlog/auth's verifyToken is mocked so we don't need real BETTER_AUTH_SECRET.
+ * @devlog/auth's verifyTransactionToken is mocked (R-80 purpose-tagged
+ * contract) so we don't need real secrets.
  * The DB layer is mocked so no real SQLite is required.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -56,7 +57,7 @@ vi.mock('@/lib/env', () => ({
 }));
 
 vi.mock('@devlog/auth', () => ({
-  verifyToken: (...args: unknown[]) => verifyTokenSpy(...(args as never[])),
+  verifyTransactionToken: (...args: unknown[]) => verifyTokenSpy(...(args as never[])),
 }));
 
 import { GET } from './route';
@@ -83,13 +84,13 @@ describe('GET /api/confirm', () => {
     expect((await res.text()).toLowerCase()).toContain('invalid');
   });
 
-  it('returns 400 when verifyToken returns false', async () => {
+  it('returns 400 when verifyTransactionToken returns false', async () => {
     verifyTokenSpy.mockReturnValue(false);
     const res = await GET(
       makeReq('http://localhost:3000/api/confirm?token=sub-1.badhmac'),
     );
     expect(res.status).toBe(400);
-    expect(verifyTokenSpy).toHaveBeenCalledWith('sub-1.badhmac', 'sub-1');
+    expect(verifyTokenSpy).toHaveBeenCalledWith('sub-1.badhmac', 'sub-1', 'confirm');
   });
 
   it('returns 400 when subscriber is not found', async () => {

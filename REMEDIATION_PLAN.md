@@ -1186,3 +1186,81 @@ After P1–P5 are complete and all gates are green, the agent will:
 ### Acceptance gate
 
 `pnpm check-types` 5/5 · `pnpm lint` 0/0 · `pnpm test` all green (360 + new regression tests) · `pnpm build` green · `pnpm audit --prod` 0 vulns · source-scan tests green (server-action exports, session cookie, layer boundaries, eslint refs) · docs updated.
+
+## 13. Pass 7 (2026-09-04) — Tiered review + security audit remediation (R-72..R-94)
+
+**Trigger:** the Pass 7 tiered audit (`code-review-and-audit` deep mode + fresh live E2E) proving the SPA against its documented contracts. Findings, evidence and the live E2E table live in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 7 Addendum" (C-41, H-40..H-41, M-49..M-55, L-45..L-56, I-12..I-15).
+
+**Method:** TDD per `skills/tdd` + `skills/tdd-workflow` — every code task starts with a RED test run against the current tree, then the GREEN implementation, then REFACTOR, then the acceptance gate.
+
+### Pre-execution validation of this plan against the codebase
+
+| Assumption | Verified against |
+|---|---|
+| `.env.local.example` is tracked and carries filled 64-hex secrets + prod URL + author password | `git show HEAD:.env.local.example` ✅ |
+| `.env.example` ships empty `RESEND_API_KEY=` / `CRON_SECRET=` / `DEV_AUTHOR_PASSWORD=`; `env.ts` Zod `.startsWith('re_')` / `.min(8)` fail on `''`; reproduced `pnpm build` failure locally | `.env.example`, `lib/env.ts:14-45`, build log ✅ |
+| `robots.txt` route ships `Cache-Control: max-age=86400` while rss/sitemap ship 3600; live CF edge `HIT age: 34507` serving localhost sitemap; cache-busted MISS serves prod URL | `api/robots.txt/route.ts:33`, live curl A/B ✅ |
+| `getClientIpFromHeaders` returns `xff.split(',')[0]`; consumed by login/subscribe/comment limiters | `lib/request-ip.ts:26-30` + call sites ✅ |
+| Subscribe handler reads `e.currentTarget` after `await subscribeToNewsletter(...)`; React 19 nulls `currentTarget` post-dispatch | `features/landing/subscribe-section.tsx:54-56` + installed react-dom source ✅ |
+| Root layout sets `canonical: '/'`; `/archive`, `/archive/page/[page]`, `/snippets` define metadata without `alternates` | `app/layout.tsx:95`, three page files ✅ |
+| Hero glow wrapper div has `pointerEvents: 'none'` and holds the `useMouseGlow` ref listeners | `hero-mouse-glow.tsx:17-21`, `use-mouse-glow.ts:41-54` ✅ |
+| `signToken`/`verifyToken` are bare `HMAC(payload)` — no `iat`/TTL/purpose; confirm email copy claims 24h expiry | `packages/auth/src/tokens.ts:142-156`, `confirm-email.tsx:86` ✅ |
+| CSP string lacks `base-uri`/`object-src`/`form-action` | `next.config.ts:7` ✅ |
+| `postsToTags` has two indexes, no unique constraint; `createPost`/`updatePost` insert `data.tagSlugs` un-deduped | `schema.ts:103-114`, `admin/actions.ts:137-144,207-212` ✅ |
+| `updatePost` never clears `publishedAt` on →draft and has no slug pre-check (createPost has one) | `admin/actions.ts:179-212` ✅ |
+| CSV guard regex is `/^[=+\-@]/` | `lib/csv.ts:13` ✅ |
+| `getArchivePosts`/`getArchiveCount` pass raw pageSize to drizzle LIMIT; `postEpochSeconds(null) → 0` feeds `getAdjacentPosts` | `packages/db/src/queries.ts:25-29,57-63,95-102,134-174` ✅ |
+| Comments page does `db.select().from(posts).all().filter(...)` | `admin/(dashboard)/comments/page.tsx:39-41` ✅ |
+| Seeded `siteSettings.rss = '/rss.xml'`; settings schema requires `z.string().url()` on rssUrl | `seed.ts:286`, `admin/schemas.ts:26-30` ✅ |
+| `send.ts` `re_test_` branch returns a live client with a fake key; `index.ts` docstring claims stub success | `packages/email/src/send.ts:78-86`, `index.ts:8-10` ✅ |
+| `useTypewriter` hidden-tab branch sets an empty 200ms callback, no visibilitychange resume | `hooks/use-typewriter.ts:52-57` ✅ |
+| 8 arbitrary Tailwind literals (`min-h-[60vh]` ×5, `min-w-[180px]`, `min-w-[200px]`) | grep ✅ |
+| `start_server.sh:155` echoes the generated password value | file read ✅ |
+| Seed prod guard rejects only the literal `dev-password-12345` | `packages/db/src/seed.ts:47-63` ✅ |
+| 405 tests green; type-check + lint clean (the no-regression floor for this pass) | executed this session ✅ |
+
+### Tasks
+
+| Task | Finding(s) | Fix (RED → GREEN → REFACTOR) | Status |
+|---|---|---|---|
+| R-72 | C-41 | RED: source-scan test asserting every tracked `*.example` env file contains only placeholder values (no `[0-9a-f]{64}` hex, no `https://programmer-blog.jesspete.shop`, no filled `DEV_AUTHOR_PASSWORD`). GREEN: `.env.local.example` values → placeholders; header comment marks it a template. Operator action recorded: rotate all three secrets on the deployment. | ✅ Complete |
+| R-73 | H-40 | RED: `env.test.ts` — `NODE_ENV=production` with `RESEND_API_KEY=''` (empty string, not absent) parses successfully as undefined; same for `DEV_AUTHOR_PASSWORD=''`/`CRON_SECRET=''`; required-in-prod secrets still throw when empty. GREEN: strip `'' → undefined` across `process.env` before `safeParse`. | ✅ Complete |
+| R-74 | H-42 | RED: unsubscribe page test — GET with a valid token renders a confirmation form and performs **no** DB write; the Server Action (POST) performs the write; invalid token unchanged. GREEN: page renders confirm UI (email shown, hidden token field); new `confirmUnsubscribe` server action in `features/subscribe/actions.ts` does token verify + update + rate limit; tests updated. | ✅ Complete |
+| R-75 | M-49 | RED: `robots.txt/route.test.ts` asserts `Cache-Control: public, max-age=3600, s-maxage=3600` (currently 86400 → RED). GREEN: align header with rss/sitemap. Operator note: purge the CF cache once post-deploy. | ✅ Complete |
+| R-76 | M-50 | RED: `request-ip.test.ts` — `"9.9.9.9, 1.1.1.1"` in `x-forwarded-for` resolves `1.1.1.1` (rightmost hop), not `9.9.9.9`; single-entry and whitespace variants; fallbacks unchanged. GREEN: take the last non-empty XFF entry; docstring rewritten. | ✅ Complete |
+| R-77 | M-51 | RED: `subscribe-section.test.tsx` — a successful submit resolves without unhandled rejection and blurs the input (currently throws on `e.currentTarget` post-await → RED). GREEN: capture `const form = e.currentTarget` before the first await. | ✅ Complete |
+| R-78 | M-52 | RED: render tests for `/archive`, `/archive/page/[page]`, `/snippets` asserting `link[rel=canonical]` equals the page's own URL (currently inherits `/` → RED). GREEN: explicit `alternates.canonical` per page. | ✅ Complete |
+| R-79 | M-53 | RED: composition test — moving the pointer over the hero section updates the glow position (currently never fires → RED). GREEN: `useMouseGlow` attaches listeners to the hero section; overlay div stays pointer-transparent. | ✅ Complete |
+| R-80 | M-54 | RED: `tokens.test.ts` — `createTransactionToken(id, { purpose: 'confirm', ttlSeconds: 7d })` produces `<id>.<iat>.confirm.<hmac>`; `verifyTransactionToken(…, 'confirm')` passes <7d, fails >7d, fails wrong purpose; legacy v1 `<id>.<hmac>` still verifies for `unsubscribe`/`preferences`. GREEN: v2 token format + purpose-tagged verification; `subscribeToNewsletter` mints confirm tokens with TTL; confirm route enforces it; email copy "expires in 7 days". | ✅ Complete |
+| R-81 | M-55 | RED: `next.config.test.ts` asserts the CSP contains `base-uri 'self'`, `object-src 'none'`, `form-action 'self'`. GREEN: append the three directives. | ✅ Complete |
+| R-82 | L-45 | RED: `queries.test.ts` — duplicate (postId, tagId) rows impossible (insert twice → constraint error / single row); admin action test — `tagSlugs` with duplicates produces one row per tag. GREEN: unique index migration (`posts_to_tags_unique`) + `[...new Set(data.tagSlugs)]` in both actions. | ✅ Complete |
+| R-83 | L-46 | RED: admin action tests — `updatePost` with `status: 'draft'` nulls `publishedAt`; slug collision with a different post returns the same field error as createPost; self-slug unchanged allowed. GREEN: implement both checks (exclude current id). | ✅ Complete |
+| R-84 | L-47 | RED: `csv.test.ts` — leading `\t` and `\r` cells are guard-prefixed. GREEN: regex → `/^[\t\r=+\-@]/`. | ✅ Complete |
+| R-85 | L-48 | RED: `queries.test.ts` — `getArchivePosts(1, 0)` / `(1, -5)` behave as pageSize 1 (no unbounded scan); `getAdjacentPosts` for a post with null `publishedAt` returns `{previous:null, next:null}`. GREEN: clamp + guard. | ✅ Complete |
+| R-86 | L-49 | RED: source-scan/render test — the comments page no longer loads the full posts table (`from(schema.posts).all()` without a where clause). GREEN: `getPostsByIds()` (inArray) in `@devlog/db` used by the page. | ✅ Complete |
+| R-87 | L-50 | RED: schema test — `rssUrl: '/rss.xml'` (site-relative) passes; `javascript:` still fails. GREEN: allow `/…` paths for `rssUrl` only (social URLs stay absolute per R-65). | ✅ Complete |
+| R-88 | L-51 | RED: `send.test.ts` — `re_test_*` API keys produce `{ ok: false, skipped: true, testMode: true }` without contacting Resend; docstring matches. GREEN: `getResend` treats `re_test_` like absent; dead branch removed; `index.ts` docstring fixed. | ✅ Complete |
+| R-89 | L-52 | RED: `use-typewriter.test.tsx` — after a tab-hide, a `visibilitychange` to visible resumes typing (chars continue). GREEN: resume hook on `visibilitychange`. | ✅ Complete |
+| R-90 | L-53 | RED: source-scan test asserting no `min-h-[60vh]` / `min-w-[1-9][0-9]0?px` literals outside `globals.css`/mockup. GREEN: `.min-h-page` component class + Tailwind spacing-scale `min-w-45`/`min-w-50` replacements. | ✅ Complete |
+| R-91 | L-54 | RED: source-scan test asserting `start_server.sh` never echoes `$gen_pw`. GREEN: print the storage location only. | ✅ Complete |
+| R-92 | L-55 | RED: `seed.test.ts` — production seed with a 12-char `DEV_AUTHOR_PASSWORD` throws (minimum 16 chars); dev unaffected. GREEN: length floor in the prod guard. | ✅ Complete |
+| R-93 | L-56 | RED: n/a (docstring-only). GREEN: as-built docstrings for `recent-notes.tsx`, `archive-preview.tsx`, `comment-form.tsx`, `mdx-components.tsx`, `(public)/layout.tsx`, `use-github-stats.ts` (landing mockup-faithful by design; anonymous comments by design; no sonner; fetch-once stats). | ✅ Complete |
+| R-94 | I-13, I-14, I-15 + doc drift | Doc pass: AGENTS/CLAUDE — Server Action return shape `{ ok: true/false, … }` (as-built), env empty-string semantics, robots cache behavior, token TTL contract; README — route count 27, validation counts updated, Pass 7 status line; SKILL.md — new lessons (React 19 currentTarget, pointer-events composition testing, canonical inheritance, XFF rightmost, env empty-normalization, token v2 TTL). | ✅ Complete |
+
+### Acceptance gate (same as Pass 6)
+
+`pnpm check-types` (5/5) && `pnpm lint` (0/0) && `pnpm test` (all green, new RED tests included) && `pnpm build` (34/34 + postbuild). Local standalone smoke re-run for the unsubscribe/confirm flows before sign-off.
+
+### Operator actions required after this pass (not code)
+
+1. **Rotate** `BETTER_AUTH_SECRET`, `SIGNED_TOKEN_SECRET`, `DEV_AUTHOR_PASSWORD` on the deployment (C-41 — the tracked example file leaked the production-format values).
+2. **Purge** the leaked values from git history (BFG / git-filter-repo) together with the C-40 scrub.
+3. **Purge the Cloudflare cache** for `/robots.txt` after deploying R-75 (the 24h edge entry predates the fix).
+4. Scope/rotate the committed SSH key (H-41 backlog, unchanged from Pass 6).
+
+### Deferred backlog (design-level, unchanged scope discipline)
+
+- Nonce-based CSP `script-src` (remove `'unsafe-inline'` for scripts) — needs proxy-issued nonces + theme-script rework.
+- Session revocation story (`tokenVersion` column or adopting the reserved `sessions` table).
+- `next/image` `remotePatterns` host allowlist (currently `https://**`).
+- Playwright E2E suite in-repo (still deferred per MEP Phase 8+).

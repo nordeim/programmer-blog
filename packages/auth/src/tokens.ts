@@ -155,4 +155,75 @@ export async function verifyToken(token: string, expectedPayload: string): Promi
   return timingSafeEqualHex(receivedMac, expectedMac);
 }
 
+// ── R-80 (Pass 7, M-54): transaction token v2 — purpose-tagged + TTL ──────
+//
+// The v1 transaction token above is a bare `HMAC(payload)`: a leaked
+// confirm/unsubscribe link was replayable forever, and the confirm email
+// claimed a 24h expiry that did not exist. v2 embeds the issuance epoch
+// and a purpose tag, mirroring the session-token v2 design (R-39):
+//
+//   v1: `<payload>.<hmac(payload)>`                      (long-lived)
+//   v2: `<payload>.<iat>.<purpose>.<hmac(payload.iat.purpose)>`
+//
+// Purpose separation matters: a `confirm` token must not work as an
+// `unsubscribe` credential and vice versa. The TTL is enforced ONLY for
+// `confirm` (7 days, matching the email copy); manage links stay
+// long-lived by design — newsletters deliberately keep unsubscribe links
+// valid, and legacy v1 tokens already in inboxes must keep working.
+
+export type TransactionPurpose = 'confirm' | 'manage';
+
+export const CONFIRM_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+
+export async function createTransactionToken(
+  payload: string,
+  purpose: TransactionPurpose,
+): Promise<string> {
+  const iat = Math.floor(Date.now() / 1000);
+  const message = `${payload}${TOKEN_SEPARATOR}${iat}${TOKEN_SEPARATOR}${purpose}`;
+  const mac = await hmacHex(message, getTransactionSecret());
+  return `${message}${TOKEN_SEPARATOR}${mac}`;
+}
+
+export async function verifyTransactionToken(
+  token: string,
+  expectedPayload: string,
+  expectedPurpose: TransactionPurpose,
+): Promise<boolean> {
+  const firstSep = token.indexOf(TOKEN_SEPARATOR);
+  if (firstSep < 0) return false;
+  const secondSep = token.indexOf(TOKEN_SEPARATOR, firstSep + 1);
+  if (secondSep < 0) {
+    // Legacy v1 `<payload>.<hmac>` — long-lived by design. Accept it for
+    // manage purposes only; a purpose-less token carries no TTL so it can
+    // never satisfy the expiring confirm contract.
+    const payload = token.slice(0, firstSep);
+    const receivedMac = token.slice(firstSep + 1);
+    if (expectedPurpose !== 'manage') return false;
+    if (payload !== expectedPayload) return false;
+    if (!isHex64(receivedMac)) return false;
+    const expectedMac = await hmacHex(payload, getTransactionSecret());
+    return timingSafeEqualHex(receivedMac, expectedMac);
+  }
+  const thirdSep = token.indexOf(TOKEN_SEPARATOR, secondSep + 1);
+  if (thirdSep < 0) return false;
+  const payload = token.slice(0, firstSep);
+  const issuedAt = token.slice(firstSep + 1, secondSep);
+  const purpose = token.slice(secondSep + 1, thirdSep);
+  const receivedMac = token.slice(thirdSep + 1);
+  if (!payload || !issuedAt || !purpose || !receivedMac) return false;
+  if (payload !== expectedPayload) return false;
+  if (purpose !== expectedPurpose) return false;
+  if (!isEpochSeconds(issuedAt)) return false;
+  if (!isHex64(receivedMac)) return false;
+  const message = `${payload}${TOKEN_SEPARATOR}${issuedAt}${TOKEN_SEPARATOR}${purpose}`;
+  const expectedMac = await hmacHex(message, getTransactionSecret());
+  if (!timingSafeEqualHex(receivedMac, expectedMac)) return false;
+  if (expectedPurpose === 'confirm') {
+    const ageSeconds = Math.floor(Date.now() / 1000) - Number(issuedAt);
+    if (ageSeconds > CONFIRM_TOKEN_TTL_SECONDS) return false;
+  }
+  return true;
+}
+
 export const SESSION_TTL = SESSION_TTL_SECONDS;

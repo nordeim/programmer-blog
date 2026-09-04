@@ -29,7 +29,7 @@ import { sendEmail } from '@devlog/email';
 import { eq } from 'drizzle-orm';
 import { headers } from 'next/headers';
 
-import { signToken } from '@/lib/auth';
+import { createTransactionToken, signToken } from '@/lib/auth';
 import { db, schema } from '@/lib/db';
 import { env } from '@/lib/env';
 import { maskEmail } from '@/lib/log';
@@ -114,10 +114,15 @@ export async function subscribeToNewsletter(input: unknown): Promise<SubscribeRe
       return { ok: false, error: 'Server error. Please try again later.' };
     }
 
-    // R-4: generate a SIGNED token (format: <subscriberId>.<hmac>).
-    // The /api/confirm, /unsubscribe, and /preferences routes call
-    // verifyToken(token, subscriberId) — they expect this format.
-    const confirmToken = await signToken(subscriberId);
+    // R-4: generate SIGNED tokens. R-80 (Pass 7, M-54): the confirm link
+    // is now a v2 purpose-tagged token with a server-enforced 7-day TTL
+    // (the email copy finally matches reality); the unsubscribe/preference
+    // links keep the long-lived v1 format so older inbox links and the
+    // manage routes' legacy-accept contract stay intact.
+    // The /api/confirm route calls verifyTransactionToken(…, 'confirm');
+    // /unsubscribe and /preferences call verifyTransactionToken(…, 'manage').
+    const confirmToken = await createTransactionToken(subscriberId, 'confirm');
+    const manageToken = await signToken(subscriberId);
 
     // Persist the signed token so the route can look it up if needed
     // (it currently re-derives from the URL, but storing keeps the
@@ -128,10 +133,12 @@ export async function subscribeToNewsletter(input: unknown): Promise<SubscribeRe
       .where(eq(schema.subscribers.id, subscriberId))
       .run();
 
-    // Build the URLs the email templates render.
+    // Build the URLs the email templates render. Each purpose gets its
+    // own credential (R-80): a leaked confirm link can no longer manage
+    // the subscription, and vice versa.
     const base = env.NEXT_PUBLIC_SITE_URL;
     const confirmUrl = `${base}/api/confirm?token=${encodeURIComponent(confirmToken)}`;
-    const unsubscribeUrl = `${base}/unsubscribe?token=${encodeURIComponent(confirmToken)}`;
+    const unsubscribeUrl = `${base}/unsubscribe?token=${encodeURIComponent(manageToken)}`;
 
     // R-3: actually send the email. Best-effort — a Resend failure does
     // NOT fail the subscribe action (PRD §5.5: degrade gracefully).

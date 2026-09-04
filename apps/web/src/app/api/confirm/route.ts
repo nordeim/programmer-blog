@@ -14,7 +14,7 @@
  * Per PAD §3.3 Pattern 4 + Pattern 6 (signed token + idempotent write).
  */
 import 'server-only';
-import { verifyToken } from '@devlog/auth';
+import { verifyTransactionToken } from '@devlog/auth';
 import { eq } from 'drizzle-orm';
 
 import { db, schema } from '@/lib/db';
@@ -34,14 +34,16 @@ export async function GET(req: ConfirmRequest) {
     return new Response('missing token', { status: 400 });
   }
 
-  // Token format: <subscriberId>.<hmac>. Verify the HMAC against
-  // the subscriberId payload.
+  // Token format (R-80): v2 `<subscriberId>.<iat>.confirm.<hmac>` —
+  // purpose-tagged with a server-enforced 7-day TTL. Legacy v1 tokens are
+  // rejected here on purpose: they carry no expiry, so accepting them
+  // would keep the replay-forever hole open.
   const sep = token.indexOf('.');
   if (sep < 0) {
     return new Response('invalid or expired token', { status: 400 });
   }
   const subscriberId = token.slice(0, sep);
-  if (!(await verifyToken(token, subscriberId))) {
+  if (!(await verifyTransactionToken(token, subscriberId, 'confirm'))) {
     return new Response('invalid or expired token', { status: 400 });
   }
 

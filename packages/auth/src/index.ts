@@ -23,20 +23,24 @@ import {
   SESSION_COOKIE,
   SESSION_TTL,
   createSessionToken,
+  createTransactionToken,
   signToken,
   verifySessionToken,
   verifyToken,
+  verifyTransactionToken,
 } from './tokens';
 
 export {
   SESSION_COOKIE,
   SESSION_TTL,
   createSessionToken,
+  createTransactionToken,
   hashPassword,
   signToken,
   verifyPassword,
   verifySessionToken,
   verifyToken,
+  verifyTransactionToken,
 };
 
 export interface SessionUser {

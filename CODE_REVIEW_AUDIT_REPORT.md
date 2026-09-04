@@ -1043,3 +1043,139 @@ Surfaces audited clean (verified, no findings): `packages/auth/src/tokens.ts` (v
 **Pass 6 sign-off:** C-38 and H-39 are closed at the source with regression pins; the risk-accepted C-39 (committed SSH key) carries documented operator follow-ups (deploy-key scoping, rotation, secret scanning). The codebase matches its documented contracts (AGENTS/CLAUDE/README/SKILL) as of this pass.
 
 *End of Pass 6 addendum.*
+
+# Pass 7 Addendum (2026-09-04) — Tiered code review + security audit + live E2E of the Pass 6 remediated codebase
+
+**Trigger:** scheduled tiered review per the `code-review-and-audit` skill (deep mode: Phase 1 static analysis → Phase 2 security scan → Phase 3 quality/12-category → Phase 4 tests → Phase 6 expert review) to prove the SPA still matches its documented contracts (AGENTS/CLAUDE/README/SKILL) and is safe to ship, plus a fresh live browser E2E against `https://programmer-blog.jesspete.shop/`.
+
+**Method:** local full quality gate re-run first (`check-types` 5/5, `lint` 0/0, `test` 405/405 = 322 web / 33 db / 26 auth / 21 types / 3 email, `build` 34/34 pages + postbuild). The skill's `audit_runner.py --mode deep` ran next; its raw output (3,762 findings) was de-noised — ≈97% originated in the read-only `skills/**` reference tree (out of scope per AGENTS.md) or were heuristic false positives on app code (e.g. `SCREAMING_SNAKE` test constants flagged as PascalCase; `parseInt(raw, 10)` with radix flagged as radix-less; both `dangerouslySetInnerHTML` sites are the already-triaged R-44/theme-script sinks; "hardcoded credentials" in test fixtures). Every automated app-code candidate was manually verified in source before acceptance — none survived triage. The substantive review was expert analysis of the security-critical surface (auth, tokens, actions, rate limiting, env, feeds, export) and the quality surface (queries, React 19 correctness, SEO contracts, hooks) by two parallel reviewers, plus live E2E via `agent-browser` (headless Chromium) and `curl` against the production deployment.
+
+## Pass 6 fixes verified live (all hold)
+
+| Check | Result |
+|---|---|
+| Landing: styled, typewriter, 3-theme toggle with persistence, toast, 0 console errors | ✅ Pass |
+| `/archive`: 9 essays; tag filter `?tag=compilers` → 1; search `lexer` → 1; `?q=%25` and `?q=_` → 0 with empty-state copy (R-66 holds) | ✅ Pass |
+| `/posts/[slug]`: single `<h1>`, canonical + og:url = prod URL, JSON-LD present, comment form functional (R-49/R-52/R-54 hold) | ✅ Pass |
+| `/snippets/[slug]`: single `<h1>` (R-64 holds) | ✅ Pass |
+| Feeds: `/rss.xml` 9 items, `/sitemap.xml` 17 locs — all URLs prod (no localhost leak in either) | ✅ Pass |
+| `/admin` + `/admin/posts` + unauthenticated CSV export → 307 `/admin/login?next=<path>` (R-31 holds) | ✅ Pass |
+| `/admin/login`: no dev credentials hint in prod HTML (R-37 holds); `?next=https://evil.example` and `?next=//evil.example` → 200, no redirect (R-60 holds) | ✅ Pass |
+| Mobile 390×844: no horizontal overflow (R-53 holds) | ✅ Pass |
+| Security headers live = `next.config.ts` declaration (CSP, XCTO, XFO DENY, RP, PP, HSTS preload) | ✅ Pass |
+| Wrong login shows `Invalid email or password.`; comment form + subscribe form accept input, no console errors; theme cookie + `data-theme` sync; 404 page themed; `/unsubscribe?token=…` / `/preferences?token=…` bad-token copy calm (R-55 holds); `/api/confirm?token=bad` → 400 | ✅ Pass |
+
+## New findings (severity-ranked)
+
+Counts: **1 Critical / 2 High / 7 Medium / 12 Low / 4 Informational** (one High is the previously risk-accepted committed SSH key, re-confirmed unrotated).
+
+### 🔴 C-41 — Tracked `.env.local.example` contains the production-faithful secret set
+- **Location:** `/.env.local.example` (git-tracked at HEAD; introduced in `ece2a9b`).
+- **Evidence:** the file carries a filled 64-hex `BETTER_AUTH_SECRET`, a filled 64-hex `SIGNED_TOKEN_SECRET`, a filled generated `DEV_AUTHOR_PASSWORD`, and the real production URL + server path (`NEXT_PUBLIC_SITE_URL=https://programmer-blog.jesspete.shop`, `DATABASE_PATH=/Home1/project/...`) — i.e. the production env, not a template. `.env.example` (the documented template) is placeholder-clean; this second file is not referenced by any doc flow.
+- **Impact:** identical class to C-40/R-71: anyone with repo read access can forge 30-day author session cookies and mint valid confirm/unsubscribe tokens — full admin takeover of the live deployment — unless the deployed secrets were rotated after these values were superseded. Rotation status of the *deployed* values cannot be verified from the repo (Assumed).
+- **Severity:** Critical (public repo, production-format secrets). **Confidence:** Verified (file content read at HEAD).
+- **Fix:** **R-72** — replace the tracked file's values with placeholders; **mandatory operator action:** rotate `BETTER_AUTH_SECRET`, `SIGNED_TOKEN_SECRET`, and `DEV_AUTHOR_PASSWORD` on the deployment (again), and purge the values from git history alongside the C-40 history scrub.
+
+### 🟠 H-40 — Present-but-empty optional env vars crash every production build (documented Quick Start flow breaks)
+- **Location:** `apps/web/src/lib/env.ts:72-108` (`loadEnv()` — Zod `safeParse(process.env)` with no empty-string normalization).
+- **Evidence:** `.env.example` ships `RESEND_API_KEY=`, `CRON_SECRET=`, `DEV_AUTHOR_PASSWORD=` **empty**. The documented flow (`cp .env.example .env.local`, fill the two secrets, `pnpm build`) makes those keys present-but-empty strings. `z.string().startsWith('re_').optional()` and `z.string().min(8).optional()` fail on `''` → `Invalid environment variables` → hard throw in production. Reproduced locally: `pnpm build` fails with exactly that error until the empty lines are removed or filled. `start_server.sh` inherits the trap (it only fills absent/short secrets it knows; an empty `RESEND_API_KEY=` line survives untouched).
+- **Impact:** every fresh-clone operator following README §Quick Start verbatim gets a failed production build with a misleading "Invalid environment variables: RESEND_API_KEY" message. Docs contradict code (README: "RESEND_API_KEY — No (degrades gracefully)").
+- **Severity:** High (breaks the documented deployment path; trivial fix). **Confidence:** Verified (reproduced).
+- **Fix:** **R-73** — normalize `'' → undefined` for every env key before Zod parsing ("empty = unset"), regression-tested in `env.test.ts`.
+
+### 🟠 H-41 — Unencrypted SSH private key committed at `docs/ssh-key.txt` (operator risk-accepted, re-confirmed)
+- Same class as Pass 6 C-39: still tracked, still `cipher none`, still the active push credential for this workflow. The operating instructions for this engagement explicitly direct its use, so it remains a documented operator workflow, **not** a code change. Operator follow-ups unchanged: deploy-key scoping, rotation after the workflow ends, history purge, CI secret scanning. **Confidence:** Verified.
+
+### 🟡 M-49 — Live `robots.txt` advertises `Sitemap: http://localhost:3000` from a 24h edge cache (documented "hourly self-heal" defeated by response headers)
+- **Location:** `apps/web/src/app/api/robots.txt/route.ts:33` — `Cache-Control: public, max-age=86400, s-maxage=86400` while the route's ISR is `revalidate = 3600`; rss/sitemap correctly ship `max-age=3600`.
+- **Evidence (live, 2026-09-04):** `GET /robots.txt` → `cf-cache-status: HIT`, `age: 34507`, body `Sitemap: http://localhost:3000/sitemap.xml`. Cache-busted `GET /robots.txt?cb=…` → `cf-cache-status: MISS` → origin serves the **correct** prod URL. I.e. the origin is healthy (R-52 works); Cloudflare pinned a stale pre-fix copy for up to 24h because the response tells it to.
+- **Impact:** crawlers read the stale sitemap pointer for up to a day after each fix/deploy — the exact failure mode R-52 was meant to close, reintroduced at the CDN layer.
+- **Severity:** Medium (SEO-facing, self-heals eventually). **Confidence:** Verified (live A/B with cache-bust).
+- **Fix:** **R-75** — align the route's `Cache-Control` to `max-age=3600, s-maxage=3600` (match rss/sitemap); operator purges the CF cache once after deploy.
+
+### 🟡 M-50 — Rate-limit keys trust the spoofable *first* X-Forwarded-For entry
+- **Location:** `apps/web/src/lib/request-ip.ts:26-30` — takes `xff.split(',')[0]` and consumes it in login (5/10min), subscribe (5/hr) and comment (10/hr) limiters.
+- **Evidence:** the file's own comment says "the first entry is the originating client" — true only when the client *is* the first hop's author; every appending reverse proxy (nginx `$proxy_add_x_forwarded_for`, Cloudflare) puts the proxy-observed client at the **end** of the chain, so the first entry is whatever the attacker sent.
+- **Impact:** per-IP limits fully bypassable by rotating a fake XFF per request; conversely an attacker can poison a victim's login bucket (targeted lockout DoS).
+- **Severity:** Medium (defeats a secondary anti-abuse control; no direct confidentiality impact). **Confidence:** Verified (code read; deployment proxy behavior Reasoned).
+- **Fix:** **R-76** — take the rightmost XFF entry (last proxy-added hop), keep `x-real-ip` then `'unknown'` fallbacks; regression tests updated.
+
+### 🟡 M-51 — Subscribe form throws on the success path (React 19 nulls `e.currentTarget` after `await`)
+- **Location:** `apps/web/src/features/landing/subscribe-section.tsx:54-56` — `e.currentTarget.querySelector(...)` runs after `await subscribeToNewsletter(...)`.
+- **Evidence:** React 19's `executeDispatch` sets `event.currentTarget = null` after the listener call (verified in the installed react-dom source); accessing it post-`await` throws `TypeError: Cannot read properties of null`.
+- **Impact:** unhandled promise rejection on every successful subscribe; the intended input blur never runs; dev overlay noise.
+- **Severity:** Medium (happy-path crash in a client handler). **Confidence:** Verified (react-dom source + call site).
+- **Fix:** **R-77** — capture `const form = e.currentTarget` before the first `await`; test pins a full success pass with no rejection.
+
+### 🟡 M-52 — `/archive`, `/archive/page/[page]`, `/snippets` self-declare as duplicates of the homepage (canonical inheritance)
+- **Location:** `apps/web/src/app/layout.tsx:95` sets root `alternates.canonical: '/'`; the three pages define `metadata` without `alternates`, so Next's shallow merge inherits the homepage canonical (the repo's own login-page comment acknowledges the inheritance mechanic).
+- **Impact:** crawlers are told these indexable pages are copies of `/` — classic duplicate-content deindexing risk; the sitemap advertises them while the canonical repudiates them.
+- **Severity:** Medium (SEO correctness). **Confidence:** Verified (metadata definitions read; Next merge behavior documented).
+- **Fix:** **R-78** — explicit `alternates.canonical` per page (`/archive`, `/snippets`, and the paged shim), pinned by render tests.
+
+### 🟡 M-53 — Hero mouse-glow never renders (listeners attached to a `pointer-events: none` element)
+- **Location:** `apps/web/src/features/landing/hero-mouse-glow.tsx:17-21` (wrapper div with `style={{ pointerEvents: 'none' }}` receiving the `useMouseGlow` ref) + `apps/web/src/hooks/use-mouse-glow.ts:41-54` (listeners on `ref.current`).
+- **Impact:** an element with `pointer-events: none` is never a pointer-event target, so the glow can never appear in the only production composition; the unit test misses it because it dispatches directly on the node.
+- **Severity:** Medium (dead feature; FR-5). **Confidence:** Verified (composition read).
+- **Fix:** **R-79** — attach listeners to the hero section (overlay stays pointer-transparent); composition test added.
+
+### 🟡 M-54 — Transaction tokens are TTL-less and purpose-less; confirm-email copy claims "expires in 24 hours"
+- **Location:** `packages/auth/src/tokens.ts:142-156` (`signToken`/`verifyToken` = bare `HMAC(payload)` — no `iat`, no TTL, no purpose); consumed by `/api/confirm`, `/unsubscribe`, `/preferences`; copy at `packages/email/src/templates/confirm-email.tsx:86`.
+- **Impact:** a leaked confirm/unsubscribe link is replayable forever (rotation of `SIGNED_TOKEN_SECRET` is the only containment, and it breaks every subscriber at once); the email promises a 24h expiry that does not exist.
+- **Severity:** Medium (requires link leak; standard newsletter hardening). **Confidence:** Verified.
+- **Fix:** **R-80** — token v2 for confirmations: `<subscriberId>.<iat-seconds>.<purpose>.<hmac>` with a server-enforced 7-day TTL on the `confirm` purpose; unsubscribe/preferences keep long-lived links (verify accepts legacy v1 tokens for backward compatibility); email copy updated to "7 days"; existing tokens keep working.
+
+### 🟡 M-55 — CSP lacks `base-uri` / `object-src` / `form-action` (and `script-src 'unsafe-inline'` remains accepted debt)
+- **Location:** `apps/web/src/next.config.ts:7`.
+- **Impact:** the theme-flash inline script requires `'unsafe-inline'` today (nonce-based CSP is the Phase-4+ upgrade path), but `base-uri` and `object-src` do not fall back to `default-src` and are free to add; `form-action` pins form targets.
+- **Severity:** Medium (defense-in-depth). **Confidence:** Verified.
+- **Fix:** **R-81** — append `base-uri 'self'; object-src 'none'; form-action 'self'`; nonce-based `script-src` documented as backlog.
+
+### 🟢 L-45 — `postsToTags` lacks a `unique(postId, tagId)` constraint; admin actions don't dedupe `tagSlugs`
+- **Location:** `packages/db/src/schema.ts:103-114`; `apps/web/src/features/admin/actions.ts:137-144, 207-212` (`for (const slugT of data.tagSlugs)` — direct insert, no dedupe). **Fix:** **R-82** — unique index migration + `[...new Set()]` in both actions.
+
+### 🟢 L-46 — `updatePost` leaves a stale `publishedAt` when a post returns to `draft`; no slug-uniqueness pre-check
+- **Location:** `apps/web/src/features/admin/actions.ts:179-212` (vs schema doc "publishedAt set only when published"). **Fix:** **R-83** — clear `publishedAt` on `status === 'draft'`; mirror `createPost`'s slug check excluding the current id.
+
+### 🟢 L-47 — CSV formula-injection guard misses tab/CR-prefixed cells
+- **Location:** `apps/web/src/lib/csv.ts:13` — guard is `/^[=+\-@]/`; OWASP's list also includes leading `\t` and `\r`. **Fix:** **R-84**.
+
+### 🟢 L-48 — Query-layer guards: `pageSize <= 0` → `LIMIT -1` (unbounded); `getAdjacentPosts` misbehaves for a null `publishedAt`
+- **Location:** `packages/db/src/queries.ts:57-63, 95-102, 134-174` (`postEpochSeconds` returns 0 for null). **Fix:** **R-85** — clamp page size ≥1; null `publishedAt` → `{ previous: null, next: null }`.
+
+### 🟢 L-49 — Admin comments page loads the entire posts table to map pending comments
+- **Location:** `apps/web/src/app/(auth)/admin/(dashboard)/comments/page.tsx:39-41` (`db.select().from(posts).all().filter(...)`). **Fix:** **R-86** — single `inArray` query via the db package.
+
+### 🟢 L-50 — Seeded `rss: '/rss.xml'` fails the settings form's `httpUrl` validation on every save
+- **Location:** `packages/db/src/seed.ts:286` vs `apps/web/src/features/admin/schemas.ts:26-30` — opening Settings and saving unchanged errors "Must be an http(s) URL" for the pre-seeded relative value. **Fix:** **R-87** — allow site-relative `/…` paths for `rssUrl` (fixes existing DBs too; an absolute-URL seed change would not).
+
+### 🟢 L-51 — `@devlog/email` `re_test_` path is a dead branch + guaranteed-fake send; stale docstring
+- **Location:** `packages/email/src/send.ts:78-86` + `index.ts:8-10` — `getResend` never returns null; `re_test_*` keys proceed to a guaranteed Resend auth failure instead of an explicit skipped/test-mode result; the docstring promises "stub success". **Fix:** **R-88** — treat `re_test_*` like a missing key (`skipped: true, testMode: true`); delete the dead branch; fix docstrings.
+
+### 🟢 L-52 — `useTypewriter` freezes permanently after the first tab-hide
+- **Location:** `apps/web/src/hooks/use-typewriter.ts:52-57` — hidden-tab branch sets an empty 200ms callback; nothing re-triggers on `visibilitychange`. **Fix:** **R-89** — resume typing when the tab becomes visible again.
+
+### 🟢 L-53 — Arbitrary Tailwind literal values (documented convention: `var()` refs only)
+- **Locations:** `min-h-[60vh]` ×5 (login/error/not-found/unsubscribe/preferences pages), `min-w-[180px]` (tag-filter), `min-w-[200px]` (subscriber-list). **Fix:** **R-90** — Tailwind v4 spacing-scale utilities (`min-h-*`/`min-w-*` equivalents) with a `.min-h-page` component class where no scale utility fits.
+
+### 🟢 L-54 — `start_server.sh` prints the generated author password to console/log
+- **Location:** `start_server.sh:155` — the value lands in terminal scrollback and captured deploy logs. **Fix:** **R-91** — print only where the value is stored.
+
+### 🟢 L-55 — Production seed accepts any weak author password except the single documented default
+- **Location:** `packages/db/src/seed.ts:47-63` — the R-57 guard rejects only the exact string `dev-password-12345`. **Fix:** **R-92** — production seeds require a ≥16-char `DEV_AUTHOR_PASSWORD` (guard keeps the known-default rejection for dev clarity).
+
+### 🟢 L-56 — Stale/misleading docstrings (doc-in-code drift, batched)
+- **Locations:** `features/landing/recent-notes.tsx:79-80` + `archive-preview.tsx:19-23` (claim DB fallback that doesn't exist — landing is mockup-faithful by design); `features/blog/comment-form.tsx:9-11` (claims session verification; comments are anonymous by design); `features/blog/mdx-components.tsx:12-14` (claims h2/h3 anchor mapping that isn't implemented); `app/(public)/layout.tsx:5-6` (claims a sonner `<Toaster>` that isn't mounted); `hooks/use-github-stats.ts:6-7` (claims 9s polling; fetches once). **Fix:** **R-93** — docstrings corrected to as-built behavior.
+
+### ⚪ Informational
+- **I-12 — automated scanner triage:** `audit_runner.py --mode deep` raw output was 3,762 findings / 93 "critical" — all either located in read-only `skills/**` or false positives on app code (fixture credentials in `*.test.ts`, radix-bearing `parseInt`, the two sanctioned `dangerouslySetInnerHTML` sinks, SCREAMING_SNAKE constants). No automated finding survived manual verification; the substantive Pass 7 findings all came from expert review + live E2E.
+- **I-13 — landing page is mockup-faithful by design:** `<RecentNotes/>`, `<SnippetShowcase/>`, `<ArchivePreview/>` render mockup constants (incl. the fictional "142 ESSAYS" stat); `getRecentPosts()` in `@devlog/db` has zero callers. Documented as intentional (the mockup is the source of truth); R-93 fixes only the docstrings that claim otherwise.
+- **I-14 — `pnpm audit --prod` not verifiable in this sandbox:** the registry audit endpoint is unreachable from the audit environment (network-restricted); the local gate ran green through check-types/lint/test/build. Operator re-runs `pnpm audit --prod` in a networked environment — expected 0 (no dependency changes in this pass).
+- **I-15 — README route-count drift:** build emits 27 routes (icon.svg, manifest.webmanifest, opengraph-image added since the "25" claim). Corrected in R-94's doc pass.
+
+## Expert review sign-off (Phase 6)
+
+Surfaces re-audited clean (verified): `proxy.ts` guard + `safeNext` (no open redirect, edge/DB role-gate layering) · session token v2 (constant-time compare, server-side 30-day TTL, legacy rejection) · scrypt params + timing-safe verify · all admin actions auth-before-mutation with Zod at every boundary · queries.ts SQL fully parameterized (`instr()` literal search, epoch-seconds binding) · rate limiter bounded (R-59 holds) · RSS/sitemap/robots XML escaping · JSON-LD `<`-escaping (R-44 holds) · CSV export auth gate + `no-store` · `env.ts` R-61 boot-throw (the H-40 gap is orthogonal: present-but-**empty** optional vars) · `.env.example` placeholder-clean · no new hardcoded secrets in app code.
+
+**Pass 7 sign-off:** C-41 is closed at the source (R-72) with a mandatory operator rotation note; H-40/H-42 and the Medium tier are remediated by R-73..R-81 with regression pins; Lows by R-82..R-93; documentation re-synced by R-94. The committed SSH key (H-41) remains an explicitly risk-accepted operator workflow per the engagement instructions.
+
