@@ -12,8 +12,8 @@
  * constant-time string compare, eliminating the `node:crypto` import
  * entirely.
  *
- * Used by apps/web/src/middleware.ts (Edge Runtime) so that the
- * middleware can verify session cookies without pulling in the
+ * Used by apps/web/src/proxy.ts (Edge Runtime) so that the proxy can
+ * verify session cookies without pulling in the
  * drizzle-orm + better-sqlite3 stack.
  *
  * R-2 (audit remediation / ADR-004 amendment): Better Auth was formally
@@ -82,19 +82,38 @@ function isHex64(s: string): boolean {
 }
 
 export async function createSessionToken(userId: string): Promise<string> {
-  const mac = await hmacHex(userId);
-  return `${userId}${TOKEN_SEPARATOR}${mac}`;
+  // R-39 (audit H-34): embed the issuance epoch so the 30-day TTL is
+  // enforced SERVER-SIDE in verifySessionToken — previously the TTL lived
+  // only in the cookie's maxAge and a stolen cookie never expired.
+  // Token v2: `<userId>.<iat-seconds>.<hmac(userId.iat)>`.
+  const iat = Math.floor(Date.now() / 1000);
+  const payload = `${userId}${TOKEN_SEPARATOR}${iat}`;
+  const mac = await hmacHex(payload);
+  return `${payload}${TOKEN_SEPARATOR}${mac}`;
+}
+
+function isEpochSeconds(s: string): boolean {
+  return /^\d{10}$/.test(s);
 }
 
 export async function verifySessionToken(token: string): Promise<string | null> {
-  const sep = token.indexOf(TOKEN_SEPARATOR);
-  if (sep < 0) return null;
-  const userId = token.slice(0, sep);
-  const receivedHmac = token.slice(sep + 1);
-  if (!userId || !receivedHmac) return null;
+  const firstSep = token.indexOf(TOKEN_SEPARATOR);
+  if (firstSep < 0) return null;
+  const secondSep = token.indexOf(TOKEN_SEPARATOR, firstSep + 1);
+  if (secondSep < 0) return null;
+  const userId = token.slice(0, firstSep);
+  const issuedAt = token.slice(firstSep + 1, secondSep);
+  const receivedHmac = token.slice(secondSep + 1);
+  if (!userId || !issuedAt || !receivedHmac) return null;
+  // R-39: legacy 2-part tokens (pre-R-39, no iat) are rejected outright —
+  // they predate server-side expiry and must force a re-login.
+  if (!isEpochSeconds(issuedAt)) return null;
   if (!isHex64(receivedHmac)) return null;
-  const expectedHmac = await hmacHex(userId);
+  const payload = `${userId}${TOKEN_SEPARATOR}${issuedAt}`;
+  const expectedHmac = await hmacHex(payload);
   if (!timingSafeEqualHex(receivedHmac, expectedHmac)) return null;
+  const ageSeconds = Math.floor(Date.now() / 1000) - Number(issuedAt);
+  if (ageSeconds > SESSION_TTL_SECONDS) return null;
   return userId;
 }
 

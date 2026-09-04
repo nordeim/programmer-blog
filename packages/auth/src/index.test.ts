@@ -36,12 +36,24 @@ afterAll(() => {
 });
 
 describe('session tokens', () => {
-  it('createSessionToken returns <userId>.<hmac>', async () => {
+  // R-39 (H-34): token v2 format is `<userId>.<iat-seconds>.<hmac>` — the
+  // issuance epoch is embedded so verifySessionToken can enforce the
+  // 30-day TTL server-side (previously the TTL was client-side only).
+  it('createSessionToken returns <userId>.<iat>.<hmac> (token v2, R-39)', async () => {
     const t = await createSessionToken('user-123');
-    expect(t).toMatch(/^user-123\.[a-f0-9]{64}$/);
+    expect(t).toMatch(/^user-123\.[0-9]{10}\.[a-f0-9]{64}$/);
   });
 
-  it('verifySessionToken returns the userId for a valid token', async () => {
+  it('the embedded iat is the current epoch in seconds', async () => {
+    const before = Math.floor(Date.now() / 1000);
+    const t = await createSessionToken('user-123');
+    const after = Math.floor(Date.now() / 1000);
+    const iat = Number(t.split('.')[1]);
+    expect(iat).toBeGreaterThanOrEqual(before);
+    expect(iat).toBeLessThanOrEqual(after);
+  });
+
+  it('verifySessionToken returns the userId for a valid fresh token', async () => {
     const t = await createSessionToken('user-123');
     expect(await verifySessionToken(t)).toBe('user-123');
   });
@@ -77,7 +89,60 @@ describe('session tokens', () => {
   });
 
   it('verifySessionToken returns null when the hmac is not hex', async () => {
-    expect(await verifySessionToken('user-123.nothex')).toBeNull();
+    expect(await verifySessionToken('user-123.1700000000.nothex')).toBeNull();
+  });
+
+  it('verifySessionToken returns null for a non-numeric iat segment', async () => {
+    expect(await verifySessionToken('user-123.notanumber.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')).toBeNull();
+  });
+});
+
+describe('session tokens — R-39 server-side expiry (H-34)', () => {
+  it('rejects a token older than SESSION_TTL (expired session)', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+      const t = await createSessionToken('user-123');
+      // Advance past the 30-day TTL.
+      vi.setSystemTime(new Date('2026-02-02T00:00:01Z'));
+      expect(await verifySessionToken(t)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('accepts a token that is within SESSION_TTL', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+      const t = await createSessionToken('user-123');
+      vi.setSystemTime(new Date('2026-01-30T23:59:59Z'));
+      expect(await verifySessionToken(t)).toBe('user-123');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a legacy 2-part token (pre-R-39 format) even with a valid HMAC', async () => {
+    // signToken('user-123') produces exactly the legacy session format
+    // `<userId>.<hmac(userId)>` — the verifier must not accept it.
+    const legacy = await signToken('user-123');
+    expect(await verifySessionToken(legacy)).toBeNull();
+  });
+
+  it('rejects when the iat is tampered (hmac binds userId + iat)', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+      const t = await createSessionToken('user-123');
+      const [userId, , mac] = t.split('.');
+      // Re-sign the SAME payload but claim a fresh iat — the mac no longer
+      // matches userId.newIat, so the token must be rejected.
+      const forged = `${userId}.9999999999.${mac}`;
+      expect(await verifySessionToken(forged)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
