@@ -6,8 +6,9 @@
  *   - Landing page: WebSite schema
  *   - Post pages: Article schema
  *
- * The data is server-controlled (not user-submitted), so the
- * `dangerouslySetInnerHTML` is safe here.
+ * The data is server-controlled and additionally `<`-escaped by
+ * `serializeJsonLd` (R-44), so the `dangerouslySetInnerHTML` cannot be
+ * abused to terminate the script element early.
  */
 import React from 'react';
 
@@ -15,11 +16,26 @@ export interface JsonLdProps {
   data: Record<string, unknown>;
 }
 
+/**
+ * R-44 (audit M-39): JSON.stringify does not escape `<`, so a literal
+ * `</script>` inside any schema string could terminate the LD+JSON
+ * script element early. Escape `<` (plus the U+2028/U+2029 line
+ * separators, which are valid JSON but not valid JS string literals)
+ * to their `\uXXXX` forms — the output stays valid JSON and parses to
+ * the identical value.
+ */
+export function serializeJsonLd(data: Record<string, unknown>): string {
+  return JSON.stringify(data)
+    .replace(/</g, '\\u003c')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
 export function JsonLd({ data }: JsonLdProps): React.ReactElement {
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }}
+      dangerouslySetInnerHTML={{ __html: serializeJsonLd(data) }}
     />
   );
 }
