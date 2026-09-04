@@ -29,6 +29,10 @@ async function fetchGitHubStatsUncached(repo: string): Promise<GitHubRepoStats> 
       },
       // Bypass Next.js fetch cache; the unstable_cache wrapper handles TTL.
       cache: 'no-store',
+      // R-43 (audit M-36): bound the request so a hung GitHub connection
+      // cannot stall /api/github-stats indefinitely; the catch below maps
+      // the abort to the fallback stats.
+      signal: AbortSignal.timeout(5_000),
     });
     if (!res.ok) {
       throw new Error(`GitHub API status ${res.status}`);

@@ -54,6 +54,39 @@ describe('getGitHubStats', () => {
     expect(stats.stars).toBeGreaterThan(0);
     expect(stats.forks).toBeGreaterThan(0);
   });
+
+  // R-43 (M-36): the fetch must carry an AbortSignal so a hung GitHub
+  // connection cannot stall /api/github-stats indefinitely.
+  it('passes an AbortSignal to fetch and aborts after the 5s timeout (R-43)', async () => {
+    vi.useFakeTimers();
+    try {
+      let aborted = false;
+      let capturedSignal: AbortSignal | null | undefined;
+      global.fetch = vi.fn().mockImplementation((_url: unknown, init?: RequestInit) => {
+        capturedSignal = init?.signal;
+        capturedSignal?.addEventListener('abort', () => {
+          aborted = true;
+        });
+        // Hang until aborted — mimics a stalled connection.
+        return new Promise((_resolve, reject) => {
+          capturedSignal?.addEventListener('abort', () => reject(new Error('timeout')));
+        });
+      }) as unknown as typeof fetch;
+
+      const promise = getGitHubStats('nordeim/programmer-blog');
+      // Advance past the 5s abort window; the hung fetch rejects,
+      // and the lib's catch maps it to the fallback stats.
+      await vi.advanceTimersByTimeAsync(5_100);
+
+      await expect(promise).resolves.toEqual(
+        expect.objectContaining({ stars: expect.any(Number), forks: expect.any(Number) }),
+      );
+      expect(capturedSignal).toBeInstanceOf(AbortSignal);
+      expect(aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('getGitHubStatsForConfiguredRepo', () => {
