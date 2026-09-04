@@ -9,7 +9,7 @@
  *
  * Resend is mocked at the module level so no real network calls.
  */
-import { describe, expect, it, vi, beforeEach, beforeAll, afterAll } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 
 // We can't easily mock 'resend' top-level (since `new Resend(apiKey)`
 // runs at send.ts load). Instead we use the no-key short-circuit + a
@@ -45,6 +45,35 @@ describe('sendEmail (no API key)', () => {
     expect(r.skipped).toBe(true);
     expect(r.error).toMatch(/RESEND_API_KEY/);
   });
+});
+
+describe('sendEmail — R-88 (Pass 7, L-51): sandbox keys skip, never send', () => {
+  beforeEach(() => {
+    delete process.env.RESEND_API_KEY;
+  });
+  afterEach(() => {
+    delete process.env.RESEND_API_KEY;
+  });
+
+  it.each(['re_test_abc123', 're_test_dev_only'])(
+    'treats a sandbox key (%s) as skipped test mode — no guaranteed-fake send',
+    async (key) => {
+      process.env.RESEND_API_KEY = key;
+      const r = await sendEmail({
+        to: 'someone@example.com',
+        subject: 'Test',
+        template: 'confirm-email',
+        props: {
+          email: 'someone@example.com',
+          confirmUrl: 'http://localhost:3000/api/confirm?token=abc',
+          unsubscribeUrl: 'http://localhost:3000/unsubscribe?token=abc',
+        },
+      } as SendEmailArgs<'confirm-email'>);
+      expect(r.ok).toBe(false);
+      expect(r.skipped).toBe(true);
+      expect(r.testMode).toBe(true);
+    },
+  );
 });
 
 describe('renderEmail', () => {

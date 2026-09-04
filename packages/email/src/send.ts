@@ -37,6 +37,8 @@ export interface SendEmailArgs<T extends EmailTemplate = EmailTemplate> {
 export interface SendEmailResult {
   ok: boolean;
   skipped?: boolean;
+  /** R-88: true when a sandbox (`re_test_…`) key caused the skip. */
+  testMode?: boolean;
   messageId?: string;
   error?: string;
 }
@@ -77,11 +79,7 @@ export async function renderEmail<T extends EmailTemplate>(
 
 function getResend(): Resend | null {
   const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey || apiKey.startsWith('re_test_')) {
-    // Sandbox / test key — real Resend calls would still go through.
-    // We allow this and surface the test-mode behaviour to the caller.
-    return new Resend('re_test_dev_only');
-  }
+  if (!apiKey) return null;
   return new Resend(apiKey);
 }
 
@@ -94,6 +92,18 @@ export async function sendEmail<T extends EmailTemplate>(
       ok: false,
       skipped: true,
       error: 'RESEND_API_KEY not configured. Email not sent.',
+    };
+  }
+  // R-88 (Pass 7, L-51): sandbox keys (`re_test_…`) previously proceeded
+  // as `new Resend('re_test_dev_only')` — a guaranteed Resend auth
+  // failure surfacing as a confusing real-send error. Treat them like an
+  // absent key: skip explicitly, labelled as test mode.
+  if (apiKey.startsWith('re_test_')) {
+    return {
+      ok: false,
+      skipped: true,
+      testMode: true,
+      error: 'Sandbox RESEND_API_KEY (re_test_…) — email skipped (test mode).',
     };
   }
   try {
