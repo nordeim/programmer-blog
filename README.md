@@ -5,7 +5,7 @@
 [![TypeScript 5.9](https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS v4](https://img.shields.io/badge/Tailwind-v4-38bdf8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![pnpm](https://img.shields.io/badge/pnpm-9.15-f69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
-[![Tests: 299](https://img.shields.io/badge/tests-299-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
+[![Tests: 335](https://img.shields.io/badge/tests-335-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
 [![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red)](#license)
 
 > Notes from a programmer's desk — on code, systems, and the strange joy of debugging at 2am.
@@ -62,6 +62,8 @@ pnpm check  # types + lint + coverage + audit + build, all must pass
 Current audit posture: **0 vulnerabilities** in `pnpm audit --prod` — 0 critical, 0 high, 0 moderate, 0 low (down from 50 total / 3 critical / 18 high at audit time). Coverage: ~65% lines (up from 44.43%) against staged thresholds; the original 80/75/80/80 target is tracked as backlog item R-30 in `REMEDIATION_PLAN.md` (admin form suite + blog components still untested).
 
 **Pass 3 (2026-09-03, post-deployment):** browser E2E against the live site caught four Critical regressions the unit suite could not see — the `/admin/login` redirect loop (C-31), PostgreSQL-only `::int` casts + `Date` binds 500-ing `/archive` and `/posts/[slug]` (C-32/C-33/H-33), and the standalone deploy serving an unstyled landing page because `.next/static` was never copied (C-34). All fixed via R-31..R-34 (see `REMEDIATION_PLAN.md` §8 Pass 3) with the first real-SQLite integration suite for the query layer; full evidence in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 3" addendum.
+
+**Pass 4 (2026-09-04, live E2E re-audit):** a second browser E2E + security review (`code-review-and-audit` deep mode) found the production deployment silently booting against an **empty database** — better-sqlite3 auto-creates a missing `devlog.db`, so `/archive` and `/posts/[slug]` 500-ed while the landing page (hardcoded mockup fallbacks) masked the outage (C-36) — and the production login page **publicly printing the seeded dev credentials** with no environment gating (C-35). Both are fixed (R-38 fail-fast DB client, R-37 env-gated hint), alongside server-side session expiry (R-39), real-IP rate limiting for comments/subscribe (R-40), a localhost-URL boot warning (R-41), CSV formula-injection guard (R-45), JSON-LD script escaping (R-44), and a GitHub fetch timeout (R-43). Full findings, evidence and E2E table in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 4 Addendum"; tasks in `REMEDIATION_PLAN.md` §10. The deployment itself still requires the operator to set an absolute `DATABASE_PATH`, run migrations + seed, and set `NEXT_PUBLIC_SITE_URL` — see the checklist below.
 
 ## Tech Stack
 
@@ -226,20 +228,20 @@ pnpm check         # = check-types && lint && test:coverage && audit --prod && b
 | Step | Expected output |
 |---|---|
 | `pnpm check-types` | `0 errors` across all 5 packages |
-| `pnpm lint` | `0 errors` (3 pre-existing warnings are acceptable) |
-| `pnpm test` | `299 tests passing` across all packages |
+| `pnpm lint` | `0 errors` (0 warnings) |
+| `pnpm test` | `335 tests passing` across all packages |
 | `pnpm build` | Standalone build at `apps/web/.next/standalone/` |
 | `pnpm dev` → http://localhost:3000 | Landing page with dark theme + typewriter + marquee |
 
 ## Environment Variables
 
-12 environment variables (1 of them is `NODE_ENV`, set by Next.js). See `.env.example` for the canonical source.
+13 application variables (plus `NODE_ENV`, set by Next.js). See `.env.example` for the canonical source.
 
 ### Server-side (read via `apps/web/src/lib/env.ts` — Zod-validated)
 
 | Variable | Purpose | Required in prod | Default |
 |---|---|---|---|
-| `DATABASE_PATH` | SQLite file path (relative to `apps/web/`) | No | `./devlog.db` |
+| `DATABASE_PATH` | SQLite file path. R-38: the file **must exist** or boot fails with an actionable error (no silent empty-DB creation) | No | `./devlog.db` |
 | `BETTER_AUTH_SECRET` | 32-byte session cookie signing key | **Yes** | — |
 | `BETTER_AUTH_URL` | Canonical site URL for auth callbacks | No | `http://localhost:3000` |
 | `RESEND_API_KEY` | Resend API key (`re_test_...` or `re_...`) | No (degrades gracefully) | — |
@@ -247,13 +249,14 @@ pnpm check         # = check-types && lint && test:coverage && audit --prod && b
 | `SIGNED_TOKEN_SECRET` | 32-byte HMAC key for subscribe/unsubscribe tokens | **Yes** | — |
 | `GITHUB_STATS_FALLBACK_STARS` | Used when GitHub API rate-limited | No | `82400` |
 | `GITHUB_STATS_FALLBACK_FORKS` | Used when GitHub API rate-limited | No | `4180` |
-| `CRON_SECRET` | Shared secret for `POST /api/cron/*` endpoints | No | — |
+| `CRON_SECRET` | **Reserved** — no cron routes exist yet | No | — |
+| `DEV_AUTHOR_PASSWORD` | Dev-only override for the seeded author password (the login-page credentials hint renders in development only, R-37) | No (dev only) | — |
 
 ### Public (inlined by Next.js, safe in client components)
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `NEXT_PUBLIC_SITE_URL` | Canonical site URL for RSS, OG tags, email links | `http://localhost:3000` |
+| `NEXT_PUBLIC_SITE_URL` | Canonical site URL for RSS, OG tags, email links. A localhost value in production triggers a loud boot warning (R-41) | `http://localhost:3000` |
 | `NEXT_PUBLIC_GITHUB_REPO` | `owner/repo` for the nav star pill | `tailwindlabs/tailwindcss` |
 | `NEXT_PUBLIC_AUTHOR_EMAIL` | Author email for footer mailto link | `hi@devlog.example` |
 
@@ -333,14 +336,24 @@ Every code change follows **Red → Green → Refactor**:
 
 - ✅ `pnpm check-types` — 0 errors across all 5 packages
 - ✅ `pnpm lint` — 0 errors, 0 warnings
-- ✅ `pnpm test` — 299 tests passing across all packages (242 web / 17 db / 16 auth / 21 types / 3 email)
+- ✅ `pnpm test` — 335 tests passing across all packages (267 web / 22 db / 22 auth / 21 types / 3 email)
 - ✅ `pnpm test:coverage` — ~65% lines vs staged regression thresholds (80% target tracked as R-30)
 - ✅ `pnpm build` — 25 routes (16.3.4), `postbuild` copies `.next/static` + `public/` into `.next/standalone/` (R-33) — `proxy.ts` Edge, Web Crypto, no `node:crypto` warning
 - ✅ `pnpm audit --prod` — **0 vulnerabilities** (`pnpm.overrides` via `pnpm-workspace.yaml` + `package.json`; `pnpm` field warning accepted on 9.15.4)
 
-### Production deploy (standalone) — R-33
+### Production deploy (standalone) — R-33 + Pass 4
 
 Next.js `output: 'standalone'` bakes the server bundle into `.next/standalone/` but leaves the client assets (`.next/static`) and `public/` **out** of it — copying them in is the operator's deploy step. The repo automates it: `pnpm build` now triggers `postbuild` (`src/scripts/copy-standalone-assets.ts`), which mirrors `.next/static → .next/standalone/apps/web/.next/static` and `public/ → .next/standalone/apps/web/public` so `pnpm build && pnpm start` always serves a complete, styled app. Skipping this step is what left the production landing page unstyled (all `/_next/static/*` 404s — audit C-34).
+
+### Production deployment checklist — Pass 4 (R-47)
+
+The database is **runtime data, not a build artifact** — whatever database the server ends up with (a stale build snapshot, an empty auto-created file, or the real seeded one) decides whether content routes work, and the landing page (hardcoded mockup fallbacks) cannot tell you which. A deployment that skips these steps serves a styled landing page while `/archive`, `/posts/[slug]`, RSS items and the admin login silently fail:
+
+1. **Database file:** set `DATABASE_PATH` to an **absolute path** (CWD-relative `./devlog.db` is the trap — the standalone `server.js` runs `process.chdir(__dirname)`, so a relative path resolves inside the standalone folder, not `apps/web/`), then run `pnpm db:migrate && pnpm db:seed` against that file. Note: Next.js output-file-tracing snapshots any DB file opened at build time into the standalone output — that snapshot is stale the moment the build finishes, so an explicit absolute `DATABASE_PATH` is always the right answer. Since R-38, booting without the file fails fast with a message naming the path and the remedy — instead of silently creating an empty database (the C-36 outage).
+2. **Secrets:** set `BETTER_AUTH_SECRET` and `SIGNED_TOKEN_SECRET` (32+ chars each) — boot throws without them (R-5).
+3. **Site URL:** set `NEXT_PUBLIC_SITE_URL=https://your-domain.com` — a localhost value in production warns at boot (R-41) and advertises `http://localhost:3000` in robots.txt, RSS, sitemap and canonical/OG tags.
+4. **Credentials hygiene:** the seeded author password defaults to a documented constant in dev; the login-page credentials hint renders **only** when `NODE_ENV=development` (R-37). Set `DEV_AUTHOR_PASSWORD` before seeding anything internet-facing, or rely on the gating.
+5. **Verify before considering the deploy live:** `GET /archive` → 200, `GET /posts/<slug>` → 200, `GET /rss.xml` contains `<item>`s, `GET /sitemap.xml` lists post URLs, `GET /admin` redirects to `/admin/login`. A green landing page alone proves nothing (audit lesson, Passes 3–4).
 
 ## The Golden Rule
 
@@ -358,6 +371,8 @@ Layer 3: domain   — Pure types and logic. NO IO. NO React. NO Drizzle. NO bett
 Layer 4: lib      — Infrastructure adapters (db, auth, email, github, rate-limit, rss, env).
                     The ONLY layer that imports drizzle-orm, better-sqlite3, resend, etc.
 ```
+
+**Drizzle precision (R-46):** app/feature files may import drizzle-orm *operators* (`eq`, `and`, `desc`, `count`) and `@devlog/db` query functions — the as-built pattern. Still review-blocking outside `packages/db` + `lib`: `drizzle-orm/sqlite-core` table definitions, `better-sqlite3`, and raw client opens.
 
 See `Project_Architecture_Document.md` §3 for the full annotated directory tree and the dependency-cruiser configuration (planned for Phase 8+).
 
@@ -418,7 +433,7 @@ Full troubleshooting in `skills/how-to-git-push-using-ssh-wrapper/SKILL.md`.
 | 5. Subscribe + email | ✅ Complete | Server Action, Zod schema, sliding-window rate limiter, Resend integration |
 | 6. Auth + admin | ✅ Complete | `proxy.ts` (was `middleware.ts`), login page, admin dashboard, post editor |
 | 7. Admin (subscribers + comments + settings) | ✅ Complete | CSV export, comment moderation, settings form, RSS/sitemap/robots |
-| 8. Validation + hardening | 🚧 In progress | This README/CLAUDE.md/AGENTS.md/SKILL.md refresh; security notes pending |
+| 8. Validation + hardening | 🚧 In progress | Pass 4 audit + remediation (R-37..R-47) complete; live-site redeploy with the production checklist pending |
 
 **Overall progress:** ~90% of the MEP shipped. The remaining work is hardening, security notes, and E2E test coverage (Playwright, deferred).
 
@@ -427,6 +442,8 @@ Full troubleshooting in `skills/how-to-git-push-using-ssh-wrapper/SKILL.md`.
 | Issue | Cause | Fix |
 |---|---|---|
 | `pnpm start` → landing page renders as unstyled raw HTML | Production deploy missing the standalone static assets — every `/_next/static/*` URL 404s (audit C-34) | Rebuild with the R-33 postbuild step (`pnpm build` runs it automatically), or copy `.next/static` into `.next/standalone/apps/web/.next/static` manually |
+| `/archive` or `/posts/[slug]` → 500 with `SQLite database does not exist at "…"` | Standalone server resolved the CWD-relative `DATABASE_PATH` where no DB file exists; since R-38 boot fails fast instead of silently creating an empty database (audit C-36) | Set `DATABASE_PATH` to the **absolute path** of the migrated DB (or run `pnpm db:migrate && pnpm db:seed` against the resolved path), then restart — see the Production deployment checklist above |
+| Boot log warns `NEXT_PUBLIC_SITE_URL is unset in production` | Deploy env never set the canonical URL, so robots.txt/RSS/sitemap/canonical advertise `http://localhost:3000` (audit H-36) | Set `NEXT_PUBLIC_SITE_URL=https://your-domain.com` in the deploy environment |
 | `/admin/login` redirects to itself forever (`ERR_TOO_MANY_REDIRECTS`) | Pre-R-31 admin shell layout wrapped the login page and gated it on an `x-pathname` header that nothing set (audit C-31) | Upgrade to the route-group shell at `src/app/(auth)/admin/(dashboard)/layout.tsx`; `/admin/login` renders outside it |
 | `/archive` or `/posts/[slug]` → 500 with `unrecognized token: ":"` / `can only bind numbers` | PostgreSQL-only `count(*)::int` casts and `Date` binds in `packages/db/src/queries.ts` (audit C-32/C-33) | Fixed in R-32 (portable `count()` + `postEpochSeconds`); if you reintroduce raw SQL, bind epoch seconds and use drizzle `count()` |
 | `git push` → `Permission denied (publickey)` | OpenSSH not installed in the environment | Use the SSH wrapper: `GIT_SSH_COMMAND="skills/how-to-git-push-using-ssh-wrapper/scripts/ssh_git_wrapper_v3.py -i docs/ssh-key.txt -o StrictHostKeyChecking=accept-new" git push origin main` |

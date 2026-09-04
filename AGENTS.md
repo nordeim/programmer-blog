@@ -51,10 +51,12 @@ A layer may only import from layers *below* it or from its own layer:
 | Layer | Path | May NOT import |
 |---|---|---|
 | 0. proxy | `apps/web/src/proxy.ts` (replaces `middleware.ts` since Next 16.3.4) | DB, Drizzle, `@devlog/auth` root (only `@devlog/auth/tokens`) |
-| 1. app | `apps/web/src/app/**` | `drizzle-orm`, `better-sqlite3`, `@devlog/db` directly — call features/lib instead |
-| 2. features | `apps/web/src/features/**` | Other features' internals; `drizzle-orm` directly (use `@devlog/db/queries`) |
+| 1. app | `apps/web/src/app/**` | `better-sqlite3`, `drizzle-orm/sqlite-core` — call `@devlog/db` query helpers instead |
+| 2. features | `apps/web/src/features/**` | Other features' internals; `drizzle-orm/sqlite-core` (use `@devlog/db/queries`) |
 | 3. domain | `apps/web/src/domain/**` | React, Drizzle, better-sqlite3, resend — pure TS only |
 | 4. lib | `apps/web/src/lib/**` | (free pass — this is where Node-only deps live) |
+
+**Drizzle precision (R-46):** route/action files MAY import drizzle-orm *operators* (`eq`, `and`, `desc`, `count`, …) and query functions from `@devlog/db` — that is the as-built pattern. Still forbidden everywhere outside `packages/db` + `lib`: `drizzle-orm/sqlite-core` (table definitions), `better-sqlite3`, and opening a raw client.
 
 **`apps/web/src/proxy.ts` is Edge Runtime.** Importing `@devlog/auth` (which pulls `better-sqlite3`) breaks the build. Import `@devlog/auth/tokens` instead — it's pure Web Crypto (`crypto.subtle` HMAC-SHA256, `async`, no `node:crypto`/`Buffer`) with no Node deps.
 
@@ -93,8 +95,9 @@ A layer may only import from layers *below* it or from its own layer:
 
 ## Database — SQLite Only
 
-- **Schema:** `packages/db/src/schema.ts` — 7 tables: `users`, `sessions`, `posts`, `tags`, `postsToTags`, `subscribers`, `comments`, `siteSettings`.
+- **Schema:** `packages/db/src/schema.ts` — 8 tables: `users`, `sessions` (reserved — the stateless HMAC auth never reads it), `posts`, `tags`, `postsToTags`, `subscribers`, `comments`, `siteSettings`.
 - **Queries boundary:** `packages/db/src/queries.ts`. Layer 1/2 must call queries from there, not Drizzle directly.
+- **Runtime client fails fast (R-38):** if the resolved `DATABASE_PATH` does not exist, the client throws an actionable error instead of letting better-sqlite3 silently create an empty database (that is how a standalone deploy 500-ed `/archive` + `/posts/[slug]` — audit C-36). Only `runMigrations()` may create a fresh file.
 - **SQLite dialect rules (R-32, regression-pinned):** no `::` casts (use drizzle's `count()`), and never bind a `Date` into raw `sql` fragments — convert with `postEpochSeconds()` (epoch seconds is the stored unit). Both rules have integration coverage in `packages/db/src/queries.test.ts`.
 - **Migrations** are committed: `pnpm db:generate` (diff schema.ts → write SQL) → review the SQL → `pnpm db:migrate` (apply). Never `db:push` outside a throwaway dev DB.
 - **Timestamps** are `integer('...', { mode: 'timestamp' })` with `default(sql\`(unixepoch())\`)`. Drizzle returns `Date` objects.
@@ -107,7 +110,7 @@ A layer may only import from layers *below* it or from its own layer:
   - `src/index.ts` — `signIn` / `getSession` / `requireAuthor` / `signOut` (Node-only: Drizzle + better-sqlite3). `getSessionFromCookies` uses `next/headers` (peer dep).
   - `src/tokens.ts` — edge-safe HMAC-SHA256 via **Web Crypto `crypto.subtle`** (`async`, `timingSafeEqualHex`, no `node:crypto`/`Buffer`). Exports `SESSION_COOKIE`, `createSessionToken()`, `verifySessionToken()`, `signToken()`, `verifyToken()` (all `async`).
   - `src/password.ts` — scrypt `hashPassword()` / `verifyPassword()` (format `scrypt:N:r:p:salt:hash`).
-- **Session cookie:** `devlog_session` (named via `SESSION_COOKIE` constant). Token format `<userId>.<hmac>`, 30-day TTL.
+- **Session cookie:** `devlog_session` (named via `SESSION_COOKIE` constant). Token v2 format (R-39): `<userId>.<iat-seconds>.<hmac(userId.iat)>` — `verifySessionToken` enforces the 30-day TTL **server-side**; legacy 2-part tokens are rejected.
 - **Role enum** (as `as const` union, not `enum`): `'author' | 'subscriber'` on `users.role` (schema mirror in `@devlog/types`). Only `author` may access `/admin/*` — enforced by `requireAuthor()` in the **`(dashboard)` shell layout** (`src/app/(auth)/admin/(dashboard)/layout.tsx`, R-31 route group — the login page renders outside it); the edge `proxy` only verifies the session HMAC (`await verifySessionToken`).
 - **Secrets:** `BETTER_AUTH_SECRET` (env name kept for compat) MUST be ≥32 chars in production or `getSecret()` throws.
 
@@ -151,9 +154,9 @@ The wrapper is Paramiko-based and handles the `shlex.join()` quoting bug that br
 
 ## Env Vars
 
-**Never read `process.env.FOO` directly** in feature/component code. Use `apps/web/src/lib/env.ts` (Zod-validated, throws at boot in prod). 12 vars total — see `.env.example` for the full list with comments. Public vars (`NEXT_PUBLIC_*`) are inlined by Next.js and safe to read in client components.
+**Never read `process.env.FOO` directly** in feature/component code. Use `apps/web/src/lib/env.ts` (Zod-validated, throws at boot in prod). 13 vars total (plus `NODE_ENV`) — see `.env.example` for the full list with comments. Public vars (`NEXT_PUBLIC_*`) are inlined by Next.js and safe to read in client components.
 
-Required in prod (will throw at boot if missing): `BETTER_AUTH_SECRET` (32+ chars), `SIGNED_TOKEN_SECRET` (32+ chars). Optional in dev: `RESEND_API_KEY` (subscribe flow degrades gracefully without it).
+Required in prod (will throw at boot if missing): `BETTER_AUTH_SECRET` (32+ chars), `SIGNED_TOKEN_SECRET` (32+ chars). Optional in dev: `RESEND_API_KEY` (subscribe flow degrades gracefully without it), `DEV_AUTHOR_PASSWORD` (overrides the seeded dev author password; the login-page credentials hint renders in **development only**, R-37). `CRON_SECRET` is reserved — no cron routes exist yet. In production, a localhost `NEXT_PUBLIC_SITE_URL` triggers a loud boot warning (R-41) — set it to the real origin.
 
 ## Don't Do This
 
@@ -166,3 +169,4 @@ Required in prod (will throw at boot if missing): `BETTER_AUTH_SECRET` (32+ char
 - Use `pnpm db:push` in prod — always `db:generate` → review → `db:migrate`.
 - Skip the failing test — TDD order is non-negotiable.
 - Modify `skills/**` — these are read-only reference skills, not part of the project.
+- Read the session cookie via the literal `'devlog_session'` — always use the `SESSION_COOKIE` constant (a source-scan test fails the suite otherwise, R-42).

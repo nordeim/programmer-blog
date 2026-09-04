@@ -129,7 +129,7 @@ Defined in [`apps/web/src/lib/env.ts`](./apps/web/src/lib/env.ts) via Zod. **Thr
 
 | Variable | Zod rule | Default | Purpose |
 |---|---|---|---|
-| `DATABASE_PATH` | `z.string()` | `./devlog.db` | SQLite file path (relative to `apps/web/`). |
+| `DATABASE_PATH` | `z.string()` | `./devlog.db` | SQLite file path. R-38: the file must EXIST or boot throws (no silent empty-DB creation). |
 | `BETTER_AUTH_SECRET` | `z.string().min(32).optional()` | — | 32-byte session cookie signing key. **Required in prod.** |
 | `BETTER_AUTH_URL` | `z.string().url()` | `http://localhost:3000` | Canonical site URL for auth callbacks. |
 | `RESEND_API_KEY` | `z.string().startsWith('re_').optional()` | — | Resend API key. Optional in dev (degrades gracefully). |
@@ -137,8 +137,9 @@ Defined in [`apps/web/src/lib/env.ts`](./apps/web/src/lib/env.ts) via Zod. **Thr
 | `SIGNED_TOKEN_SECRET` | `z.string().min(32).optional()` | — | 32-byte HMAC key for subscribe/unsubscribe tokens. **Required in prod.** |
 | `GITHUB_STATS_FALLBACK_STARS` | `z.coerce.number().int()` | `82400` | Used when GitHub API rate-limited. |
 | `GITHUB_STATS_FALLBACK_FORKS` | `z.coerce.number().int()` | `4180` | Used when GitHub API rate-limited. |
-| `CRON_SECRET` | `z.string().optional()` | — | Shared secret for `POST /api/cron/*` endpoints. |
-| `NODE_ENV` | `z.enum(['development','test','production'])` | `development` | Set by Next.js. |
+| `CRON_SECRET` | `z.string().optional()` | — | **Reserved** — no cron routes exist yet (R-47 doc sync). |
+| `DEV_AUTHOR_PASSWORD` | `z.string().min(8).optional()` | — | Dev-only override for the seeded author password; the login-page credentials hint renders in development only (R-37). |
+| `NODE_ENV` | `z.enum(['development','test','production'])` | `development` | Set by Next.js. In production, a localhost `NEXT_PUBLIC_SITE_URL` warns at boot (R-41). |
 
 **Public** (inlined by Next.js, safe in client components):
 
@@ -369,11 +370,13 @@ A layer may only import from layers *below* it (higher-numbered) or from its own
 | Layer | Path | May NOT import |
 |---|---|---|
 | 0. proxy | `apps/web/src/proxy.ts` (replaces `middleware.ts` since 16.3.4, `export async function proxy`) | DB, Drizzle, `@devlog/auth` root. Only `@devlog/auth/tokens` (Web Crypto `crypto.subtle`, `async`) |
-| 1. app | `apps/web/src/app/**` | `drizzle-orm`, `better-sqlite3`, `@devlog/db` directly — call features/lib instead. |
-| 2. features | `apps/web/src/features/**` | Other features' internals; `drizzle-orm` directly (use `@devlog/db/queries`). |
+| 1. app | `apps/web/src/app/**` | `better-sqlite3`, `drizzle-orm/sqlite-core` — call `@devlog/db` query helpers instead (R-46). |
+| 2. features | `apps/web/src/features/**` | Other features' internals; `drizzle-orm/sqlite-core` (use `@devlog/db/queries`, R-46). |
 | 3. domain | `apps/web/src/domain/**` | React, Drizzle, better-sqlite3, resend — pure TS only. |
 | 4. lib | `apps/web/src/lib/**` | (free pass — this is where Node-only deps live) |
 | Packages | `packages/{db,auth,email,types,config}/**` | (free pass — consumed via Layer 4 only) |
+
+**R-46 precision (Pass 4):** app/feature files MAY import drizzle-orm *operators* (`eq`, `and`, `desc`, `count`) and `@devlog/db` query functions — that is the as-built pattern across 10+ files. Still review-blocking outside `packages/db` + `lib`: `drizzle-orm/sqlite-core` table definitions, `better-sqlite3`, raw client opens, and any `drizzle-orm` import in `domain/`.
 
 **Dependency-cruiser enforcement:** Planned for Phase 8+ (not yet wired). Until then, violations are caught in code review.
 
@@ -1242,6 +1245,38 @@ See `apps/web/src/app/layout.tsx:60-97`.
 
 **How to avoid:** **make the correct deploy the default path.** `pnpm build` now runs `postbuild` (`src/scripts/copy-standalone-assets.ts`) mirroring `.next/static → .next/standalone/apps/web/.next/static` and `public/` alongside, so `pnpm build && pnpm start` is always self-contained. The script is integration-tested (copy, public, idempotency, missing-input warnings). Diagnostic shortcut for "unstyled Next.js page": `curl -I` the CSS chunk from the HTML — if it 404s, check the standalone folder before blaming the CSS.
 
+### 12.21 L21 — better-sqlite3 Silently Creates an Empty Database (Pass 4, C-36)
+
+**What happened:** the live deployment 500-ed `/archive` and `/posts/[slug]` while the landing page looked fine. The standalone server resolved the CWD-relative `DATABASE_PATH` default (`./devlog.db`) against a working directory that had no database file; `new Database(path)` **created an empty file** instead of failing, every query then threw `no such table: posts`, and the hardcoded mockup fallbacks on the landing page hid the outage (RSS even returned a well-formed 200 with zero items).
+
+**Why it mattered:** silent empty-state boot turns every DB-backed route into a runtime 500 with no boot-time signal, and a working landing page masks it in every smoke test.
+
+**How to avoid:** **fail fast on missing runtime data.** The client now throws an actionable error (resolved path + remedy) when the file doesn't exist (R-38); only `openDatabaseForMigrations()` — the `db:migrate` bootstrap — may create one. Diagnose: if the landing page renders but DB routes 500, check whether the server is pointing at an empty database before blaming the queries.
+
+### 12.22 L22 — Stateless HMAC Sessions Need an Embedded Timestamp to Expire (Pass 4, H-34)
+
+**What happened:** session tokens were `<userId>.<hmac(userId)>` with the 30-day TTL enforced only as the cookie's `maxAge`. The verifier had no time input at all — a stolen cookie was valid forever, and sign-out (cookie deletion) could not invalidate a copy.
+
+**Why it mattered:** a "TTL" that exists only client-side is not a security control; the server must be able to reject an expired token it receives.
+
+**How to avoid:** **bind the issuance time into the MAC.** Token v2 (R-39) is `<userId>.<iat-seconds>.<hmac(userId.iat)>` and `verifySessionToken` rejects `now - iat > TTL` (plus legacy 2-part tokens outright). Any stateless bearer design needs the epoch inside the signed payload.
+
+### 12.23 L23 — Dev Credential Hints Must Be Environment-Gated (Pass 4, C-35)
+
+**What happened:** the admin login page rendered `$ dev credentials — author@devlog.example / dev-password-12345` unconditionally — including on the live production site (verified by curl). Only the deployment's broken database prevented an immediate admin takeover.
+
+**Why it mattered:** a convenience hint is indistinguishable from public credentials disclosure once it reaches production, and "the DB is broken anyway" is not a defense.
+
+**How to avoid:** **gate every developer affordance on `NODE_ENV === 'development'`** (R-37) and add a render-level test that asserts absence in production. Never document a real default password without an env override path (`DEV_AUTHOR_PASSWORD`).
+
+### 12.24 L24 — Never Key a Rate Limiter on Something the Caller Doesn't Send (Pass 4, H-35)
+
+**What happened:** the comment limiter's key was `ctx.ip ?? postId`, and the only production caller never passed an IP — so every visitor of a post shared one 10/hour bucket and the 11th legitimate comment was blocked for everyone. Subscribe had the same drift (keyed by email while documented as per-IP).
+
+**Why it mattered:** a limiter keyed on a shared value is both a denial-of-service on legitimate users and no throttle against attackers.
+
+**How to avoid:** **read the client IP server-side from proxy headers** (`x-forwarded-for` first entry, then `x-real-ip`) via the shared `getClientIpFromHeaders` helper (R-40) and fall back to a per-entity key only when genuinely absent. Never rely on the caller to pass request context the server can read itself.
+
 ---
 
 ## 13. Pitfalls to Avoid
@@ -1250,7 +1285,7 @@ See `apps/web/src/app/layout.tsx:60-97`.
 
 - **Don't put DB access in `proxy.ts`.** Edge Runtime can't bundle `better-sqlite3`. Use `@devlog/auth/tokens` for edge-safe auth.
 - **Don't import `@devlog/auth` (root) in `proxy.ts`.** Same reason — pulls in `@devlog/db` + `better-sqlite3`. Use `@devlog/auth/tokens` (`async`).
-- **Don't import `drizzle-orm` in Layer 1 (app) or Layer 2 (features).** Use `@devlog/db/queries` instead.
+- **Don't import `drizzle-orm/sqlite-core` or `better-sqlite3` in Layer 1 (app) or Layer 2 (features).** Drizzle-orm *operators* (`eq`, `and`, `desc`, `count`) alongside `@devlog/db` query functions are the sanctioned pattern (R-46); table definitions and raw clients are not.
 - **Don't put React/JSX in Layer 3 (domain).** Domain is pure TS — Zod schemas, slugify, signed-token helpers.
 - **Don't put IO in Layer 3 (domain).** No `fetch`, no `fs`, no DB.
 
@@ -2162,10 +2197,10 @@ The 6-phase workflow used for every implementation task:
 | `apps/web/src/domain/github.ts` | GitHub stats types + `formatNumber()` |
 | `apps/web/src/hooks/use-typewriter.ts` | Type → pause → delete → advance cycle |
 | `apps/web/src/hooks/use-theme.ts` | Theme state + `T` keyboard shortcut |
-| `packages/db/src/schema.ts` | Drizzle schema — 7 tables |
-| `packages/db/src/client.ts` | Lazy globalThis Proxy DB client |
+| `packages/db/src/schema.ts` | Drizzle schema — 8 tables (`sessions` reserved, never read by the stateless auth) |
+| `packages/db/src/client.ts` | Lazy globalThis Proxy DB client; R-38 fail-fast when the file is missing |
 | `packages/db/src/queries.ts` | The query boundary (Layer 1/2 calls go here) |
-| `packages/auth/src/index.ts` | Better Auth instance (Node-only) |
+| `packages/auth/src/index.ts` | Homegrown HMAC auth surface — signIn/getSession/requireAuthor (Node-only; R-2 removed Better Auth) |
 | `packages/auth/src/tokens.ts` | Edge-safe pure crypto helpers |
 | `packages/email/src/send.ts` | Resend wrapper + template registry |
 | `packages/config/tailwind/base.css` | Raw color tokens per `[data-theme]` |
