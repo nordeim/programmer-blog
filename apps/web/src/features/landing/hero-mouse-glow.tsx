@@ -12,7 +12,11 @@
 import { useMouseGlow } from '@/hooks/use-mouse-glow';
 
 export function HeroMouseGlow() {
-  const { ref, position, visible } = useMouseGlow();
+  // R-79 (Pass 7, M-53): track on the PARENT hero section. The overlay is
+  // deliberately `pointer-events: none` (it must never block hero links),
+  // which also means it can never receive pointer events itself — the
+  // previous self-tracking composition was dead code in every browser.
+  const { ref, position, visible } = useMouseGlow({ track: 'parent' });
   return (
     <div
       ref={ref}

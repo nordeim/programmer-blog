@@ -16,11 +16,12 @@ interface GlowPosition {
   y: number;
 }
 
-export function useMouseGlow(): {
+export function useMouseGlow(options?: { track?: 'self' | 'parent' }): {
   ref: React.RefObject<HTMLDivElement | null>;
   position: GlowPosition;
   visible: boolean;
 } {
+  const track = options?.track ?? 'self';
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<GlowPosition>({ x: 0, y: 0 });
   const [visible, setVisible] = useState(false);
@@ -41,17 +42,23 @@ export function useMouseGlow(): {
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
+    // R-79 (Pass 7, M-53): with `track: 'parent'` the listeners attach to
+    // the parent hero section — a `pointer-events: none` overlay can never
+    // be a pointer-event target in a real browser, so listening on it made
+    // the glow dead code. The overlay itself stays pointer-transparent.
+    const target = track === 'parent' ? node.parentElement : node;
+    if (!target) return;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
-    node.addEventListener('mousemove', onMouseMove);
-    node.addEventListener('mouseenter', onMouseEnter);
-    node.addEventListener('mouseleave', onMouseLeave);
+    target.addEventListener('mousemove', onMouseMove);
+    target.addEventListener('mouseenter', onMouseEnter);
+    target.addEventListener('mouseleave', onMouseLeave);
     return () => {
-      node.removeEventListener('mousemove', onMouseMove);
-      node.removeEventListener('mouseenter', onMouseEnter);
-      node.removeEventListener('mouseleave', onMouseLeave);
+      target.removeEventListener('mousemove', onMouseMove);
+      target.removeEventListener('mouseenter', onMouseEnter);
+      target.removeEventListener('mouseleave', onMouseLeave);
     };
-  }, [onMouseMove, onMouseEnter, onMouseLeave]);
+  }, [onMouseMove, onMouseEnter, onMouseLeave, track]);
 
   return { ref, position, visible };
 }
