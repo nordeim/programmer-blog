@@ -107,3 +107,12 @@ describe('SnippetsIndex', () => {
     expect(getByText('useMouseGlow')).toBeTruthy();
   });
 });
+
+
+// R-78 (Pass 7, M-52): explicit canonical — no homepage-canonical inheritance.
+describe('snippets page metadata — R-78 (M-52)', () => {
+  it('declares its own canonical URL', async () => {
+    const { metadata } = await import('./page');
+    expect(metadata.alternates?.canonical).toBe('/snippets');
+  });
+});

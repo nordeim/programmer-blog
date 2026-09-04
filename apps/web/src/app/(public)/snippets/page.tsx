@@ -16,6 +16,8 @@ import { listSnippets } from '@/lib/snippets';
 export const metadata: Metadata = {
   title: 'Snippets — /dev/log',
   description: 'Reusable hooks and components from the /dev/log codebase.',
+  // R-78 (Pass 7, M-52): explicit canonical — no homepage-canonical inheritance.
+  alternates: { canonical: '/snippets' },
 };
 
 export default async function SnippetsIndex() {

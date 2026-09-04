@@ -176,3 +176,14 @@ describe('ArchivePage', () => {
     expect(mockGetTagsInUse).toHaveBeenCalledTimes(1);
   });
 });
+
+
+// R-78 (Pass 7, M-52): without an explicit `alternates.canonical` this
+// page inherits the root layout's `canonical: '/'` — telling crawlers
+// the whole archive is a duplicate of the homepage.
+describe('archive page metadata — R-78 (M-52)', () => {
+  it('declares its own canonical URL', async () => {
+    const { metadata } = await import('./page');
+    expect(metadata.alternates?.canonical).toBe('/archive');
+  });
+});

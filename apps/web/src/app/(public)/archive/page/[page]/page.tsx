@@ -18,6 +18,9 @@ import ArchivePage from '../../page';
 export const metadata: Metadata = {
   title: 'Archive — /dev/log',
   description: 'Every essay, sorted by recency. Filter by tag or grep by query.',
+  // R-78 (Pass 7, M-52): paginated URLs are indexable listing pages, not
+  // homepage duplicates — canonical points at the section root.
+  alternates: { canonical: '/archive' },
 };
 
 interface PageRouteParams {

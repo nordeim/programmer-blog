@@ -20,6 +20,9 @@ import { paginate } from '@/lib/pagination';
 export const metadata: Metadata = {
   title: 'Archive — /dev/log',
   description: 'Every essay, sorted by recency. Filter by tag or grep by query.',
+  // R-78 (Pass 7, M-52): without this the page inherits the root layout's
+  // `canonical: '/'` and crawlers treat the archive as a homepage duplicate.
+  alternates: { canonical: '/archive' },
 };
 
 const PAGE_SIZE = 10;
