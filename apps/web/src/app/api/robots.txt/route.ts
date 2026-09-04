@@ -30,7 +30,12 @@ export async function GET() {
   return new Response(body, {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'public, max-age=86400, s-maxage=86400',
+      // R-75 (Pass 7, M-49): hourly, matching the ISR cadence and the
+      // rss/sitemap routes. The previous 24h s-maxage let a CDN pin a
+      // stale pre-deploy copy for a day (a live Cloudflare edge HIT kept
+      // serving a localhost sitemap URL at age 34507s) — defeating the
+      // hourly self-heal this route's revalidate promises.
+      'Cache-Control': 'public, max-age=3600, s-maxage=3600',
     },
   });
 }
