@@ -15,6 +15,8 @@
  * database file — important when the configured DATABASE_PATH doesn't
  * exist at build time.
  */
+import { existsSync } from 'node:fs';
+
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
@@ -38,12 +40,37 @@ function resolveDbPath(): string {
   return './devlog.db';
 }
 
-function createDrizzleClient(): DrizzleClient {
+function createDrizzleClient(opts: { allowCreate?: boolean } = {}): DrizzleClient {
   const dbPath = resolveDbPath();
+  // R-38 (audit C-36): better-sqlite3 silently CREATES the file when it is
+  // missing, which boots the app against an empty database — every query
+  // then fails at request time with "no such table: <t>" (the production
+  // /archive + /posts/[slug] 500s) while the landing page (hardcoded
+  // mockup fallbacks) masks the outage. Fail fast with the remedy instead.
+  //
+  // Exception: the migrations bootstrap path (openDatabaseForMigrations)
+  // explicitly opts into creation — applying `pnpm db:migrate` to a fresh
+  // deployment is the one legitimate way a database file comes into being.
+  if (!opts.allowCreate && !existsSync(dbPath)) {
+    throw new Error(
+      `[devlog/db] SQLite database does not exist at "${dbPath}". ` +
+        `Refusing to boot against an empty database. Remedy: run "pnpm db:generate && pnpm db:migrate && pnpm db:seed" against this file, ` +
+        `or set DATABASE_PATH to the absolute path of the migrated database.`,
+    );
+  }
   const sqlite = new Database(dbPath);
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
   return drizzle(sqlite, { schema });
+}
+
+/**
+ * R-38 escape hatch: the ONLY sanctioned way to open (and thereby create)
+ * a not-yet-existing database file — `runMigrations()` (db:migrate).
+ * Returns a fresh, UNCACHED client; the runtime `db` proxy is unaffected.
+ */
+export function openDatabaseForMigrations(): DrizzleClient {
+  return createDrizzleClient({ allowCreate: true });
 }
 
 /**
