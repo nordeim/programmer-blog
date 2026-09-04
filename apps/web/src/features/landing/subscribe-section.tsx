@@ -30,9 +30,15 @@ export function SubscribeSection() {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    // R-77 (Pass 7, M-51): React 19 nulls a synthetic event's
+    // `currentTarget` as soon as the synchronous dispatch finishes, so it
+    // must be captured BEFORE the first `await` — reading it afterwards
+    // threw `TypeError: Cannot read properties of null` on every
+    // successful subscribe.
+    const form = e.currentTarget;
     setError(null);
     setIsPending(true);
-    const formData = new FormData(e.currentTarget);
+    const formData = new FormData(form);
     const emailValue = String(formData.get('email') ?? '').trim();
     setEmail(emailValue);
 
@@ -51,9 +57,7 @@ export function SubscribeSection() {
       setEmail('');
       setError(null);
       // Blur the input so the placeholder shows.
-      (
-        e.currentTarget.querySelector('input[type="email"]') as HTMLInputElement | null
-      )?.blur();
+      (form.querySelector('input[type="email"]') as HTMLInputElement | null)?.blur();
     } finally {
       setIsPending(false);
     }
