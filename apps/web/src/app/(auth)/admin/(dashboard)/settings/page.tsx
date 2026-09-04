@@ -5,7 +5,7 @@ import { getSiteSettings } from '@devlog/db';
 import { cookies } from 'next/headers';
 
 import { SettingsForm } from '@/features/admin/settings-form';
-import { isAuthorRequiredError, requireAuthor } from '@/lib/auth';
+import { SESSION_COOKIE, isAuthorRequiredError, requireAuthor } from '@/lib/auth';
 
 export const metadata = {
   title: 'Settings — /dev/log admin',
@@ -15,7 +15,7 @@ export const metadata = {
 export default async function AdminSettingsPage() {
   const jar = await cookies();
   try {
-    await requireAuthor(jar.get('devlog_session')?.value);
+    await requireAuthor(jar.get(SESSION_COOKIE)?.value);
   } catch (e) {
     if (isAuthorRequiredError(e)) {
       const { redirect } = await import('next/navigation');

@@ -22,6 +22,7 @@ vi.mock('next/headers', () => ({
 }));
 
 vi.mock('@/lib/auth', () => ({
+  SESSION_COOKIE: 'devlog_session',
   isAuthorRequiredError: (e: unknown) =>
     e instanceof Error && e.message === 'AUTHOR_REQUIRED',
   requireAuthor: (cookie: string | undefined) => requireAuthorSpy(cookie),

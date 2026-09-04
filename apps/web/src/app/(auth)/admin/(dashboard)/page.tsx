@@ -14,7 +14,7 @@ import {
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 
-import { getSession, isAuthorRequiredError, requireAuthor } from '@/lib/auth';
+import { SESSION_COOKIE, getSession, isAuthorRequiredError, requireAuthor } from '@/lib/auth';
 import { getGitHubStatsForConfiguredRepo } from '@/lib/github';
 
 interface StatCard {
@@ -33,7 +33,7 @@ export default async function AdminDashboard() {
   const jar = await cookies();
   let user;
   try {
-    user = await requireAuthor(jar.get('devlog_session')?.value);
+    user = await requireAuthor(jar.get(SESSION_COOKIE)?.value);
   } catch (e) {
     if (isAuthorRequiredError(e)) {
       const { redirect } = await import('next/navigation');

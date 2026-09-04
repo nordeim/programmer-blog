@@ -8,7 +8,7 @@ import { eq } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 
 import { CommentModeration } from '@/features/admin/comment-moderation';
-import { isAuthorRequiredError, requireAuthor } from '@/lib/auth';
+import { SESSION_COOKIE, isAuthorRequiredError, requireAuthor } from '@/lib/auth';
 import { db, schema } from '@/lib/db';
 
 export const metadata = {
@@ -19,7 +19,7 @@ export const metadata = {
 export default async function AdminCommentsPage() {
   const jar = await cookies();
   try {
-    await requireAuthor(jar.get('devlog_session')?.value);
+    await requireAuthor(jar.get(SESSION_COOKIE)?.value);
   } catch (e) {
     if (isAuthorRequiredError(e)) {
       const { redirect } = await import('next/navigation');

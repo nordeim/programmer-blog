@@ -8,7 +8,7 @@ import { getAllTags } from '@devlog/db';
 import { cookies } from 'next/headers';
 
 import { PostEditor } from '@/features/admin/post-editor';
-import { isAuthorRequiredError, requireAuthor } from '@/lib/auth';
+import { SESSION_COOKIE, isAuthorRequiredError, requireAuthor } from '@/lib/auth';
 
 export const metadata = {
   title: 'New post — /dev/log admin',
@@ -18,7 +18,7 @@ export const metadata = {
 export default async function AdminNewPostPage() {
   const jar = await cookies();
   try {
-    await requireAuthor(jar.get('devlog_session')?.value);
+    await requireAuthor(jar.get(SESSION_COOKIE)?.value);
   } catch (e) {
     if (isAuthorRequiredError(e)) {
       const { redirect } = await import('next/navigation');

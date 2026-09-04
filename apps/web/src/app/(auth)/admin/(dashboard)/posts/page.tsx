@@ -11,7 +11,7 @@ import { cookies } from 'next/headers';
 import Link from 'next/link';
 
 import { PostList } from '@/features/admin/post-list';
-import { isAuthorRequiredError, requireAuthor } from '@/lib/auth';
+import { SESSION_COOKIE, isAuthorRequiredError, requireAuthor } from '@/lib/auth';
 
 
 export const metadata = {
@@ -22,7 +22,7 @@ export const metadata = {
 export default async function AdminPostsPage() {
   const jar = await cookies();
   try {
-    await requireAuthor(jar.get('devlog_session')?.value);
+    await requireAuthor(jar.get(SESSION_COOKIE)?.value);
   } catch (e) {
     if (isAuthorRequiredError(e)) {
       const { redirect } = await import('next/navigation');

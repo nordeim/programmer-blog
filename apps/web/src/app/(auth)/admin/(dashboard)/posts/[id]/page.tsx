@@ -9,7 +9,7 @@ import { eq } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 
 import { PostEditor } from '@/features/admin/post-editor';
-import { isAuthorRequiredError, requireAuthor } from '@/lib/auth';
+import { SESSION_COOKIE, isAuthorRequiredError, requireAuthor } from '@/lib/auth';
 import { db, schema } from '@/lib/db';
 
 
@@ -29,7 +29,7 @@ export default async function AdminEditPostPage({
 }) {
   const jar = await cookies();
   try {
-    await requireAuthor(jar.get('devlog_session')?.value);
+    await requireAuthor(jar.get(SESSION_COOKIE)?.value);
   } catch (e) {
     if (isAuthorRequiredError(e)) {
       const { redirect } = await import('next/navigation');

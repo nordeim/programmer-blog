@@ -22,7 +22,7 @@ import { cookies } from 'next/headers';
 import { z } from 'zod';
 
 
-import { isAuthorRequiredError, requireAuthor } from '@/lib/auth';
+import { SESSION_COOKIE, isAuthorRequiredError, requireAuthor } from '@/lib/auth';
 import { db, schema } from '@/lib/db';
 
 // R-18: the schema now lives in @devlog/types (single source of truth,
@@ -53,7 +53,7 @@ function ok(message: string): AdminSuccess {
 
 async function requireAuthorFromCookie() {
   const jar = await cookies();
-  const cookie = jar.get('devlog_session')?.value;
+  const cookie = jar.get(SESSION_COOKIE)?.value;
   return requireAuthor(cookie);
 }
 

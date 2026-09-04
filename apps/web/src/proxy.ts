@@ -2,9 +2,8 @@
  * apps/web/src/proxy.ts — FR-33 admin guard (Layer 0).
  *
  * Next.js 16 renamed `middleware.ts` → `proxy.ts`. This file is the
- * Edge Runtime proxy that gates `/admin/*`. Kept as `proxy.ts` to
- * silence `⚠ The "middleware" file convention is deprecated`.
- * `middleware.ts` is kept as a shim re-export for ecosystem compat.
+ * Edge Runtime proxy that gates `/admin/*`. It is the ONLY proxy file
+ * (no middleware.ts exists — Next 16 build errors if both are present).
  *
  * Reads the session cookie. For `/admin/*` (except `/admin/login`),
  * if no session or role !== 'author', redirects to `/admin/login`.
