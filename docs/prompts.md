@@ -26,3 +26,11 @@ Finally, `git commit` all code and document changes locally and then `git push` 
 
 Do not create any new git branch. All git commits must be to the main branch.
 
+---
+
+Please meticulously review the included `AGENTS.md` , `CLAUDE.md` , `README.md` and `programmer-blog_SKILL.md` to have a good understanding of the purpose of the project and its current codebase design and architecture. Next, meticulously validate your understanding against the codebase to check for alignment and to confirm the project status. Next, meticulously plan to review and validate @docs/session_log_3.md against the codebase.
+
+---
+
+please meticulously plan to create a server startup shell script (edit/flesh out the dummy `start_server.sh`), that brings the server up in production with URL `https://programmer-blog.jesspete.shop` after the codebase is freshly deployed via `git clone`. meaning the application/server start script assumes a fresh live deployment from the point when the codebase was initially cloned. test the script by killing all currently running servers, then use the start script to initialize and seed the database (assuming no initial database), run test and build before starting the server process in the background.
+
