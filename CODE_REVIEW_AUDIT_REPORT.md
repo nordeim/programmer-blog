@@ -731,3 +731,128 @@ The audit is `PASSED` for production readiness. **No open deferred findings.** E
 **NOT SAFE TO SHIP** as-is: the four Criticals (C-31..C-34) break the login surface, two top content routes, and the entire production stylesheet. All are repo-level and fixed by R-31..R-34; re-audit after the remediation pass gates the release.
 
 *End of Pass 3 addendum.*
+
+---
+
+# Pass 4 Addendum (2026-09-04) — Live E2E re-audit + full security review
+
+**Method:** `code-review-and-audit` skill, `deep` mode (all 5 phases + expert review). Phase 1/4 ran natively (`pnpm check-types`, `pnpm lint`, `pnpm test` — all green, 299 tests). Phase 2 ran `pnpm audit --prod` + `pnpm audit` (both **0 vulnerabilities**), a secret-pattern scan (clean), and a dangerous-pattern scan (2 `dangerouslySetInnerHTML` uses audited individually). Phase 3's Python checklist produced 3,600 heuristic hits dominated by false positives (PascalCase consts, CAPS comments); per the skill's anti-inflation rule it was used as a triage aid only — the authoritative Phase 3 is the manual expert review below. Phase 5 (Lighthouse) was replaced by real-browser E2E via `agent-browser` against the live deployment.
+
+**Scope:** SPA vs documented contracts (AGENTS/CLAUDE/README/SKILL), security, correctness, data integrity, error handling, testing, maintainability, consistency, dependency health.
+
+## E2E results against https://programmer-blog.jesspete.shop/
+
+| Check | Result |
+|---|---|
+| `/` landing: hero, marquee, recent notes, snippets, archive preview, subscribe, 3 themes, static assets (16 `/_next/static` files) | ✅ Pass |
+| `/snippets`, `/snippets/[slug]` | ✅ Pass |
+| `/rss.xml`, `/sitemap.xml`, `/robots.txt` — 200 + correct MIME (R-34 rewrites live) | ✅ Pass |
+| `/admin/*` unauthenticated → 307 → `/admin/login?next=…` (C-31 fix holds, no loop) | ✅ Pass |
+| 404 page, security headers (CSP/HSTS/XFO/XCTO/RP/PP), `/api/github-stats`, `/preferences`, `/unsubscribe` | ✅ Pass |
+| `/archive`, `/archive/page/2`, `/posts/[slug]` | 🔴 **HTTP 500** (error boundary; React error #441; digests 2678184058 / 3300160849) |
+| robots.txt / RSS / sitemap / canonical / OG URLs | 🔴 **Leak `http://localhost:3000`** |
+| RSS `<item>` count on live | 🔴 **0 items** (sitemap has only 3 URLs — deployed DB is empty) |
+| Invalid-credentials login on live | 🔴 "Server error. Please try again." (misleading — see C-36) |
+
+## 🔴 Critical Findings (2 items)
+
+### C-35 — Production login page publicly discloses default admin credentials (no environment gating)
+- **Location:** `apps/web/src/app/(auth)/admin/login/page.tsx:64-71`; default password source `packages/db/src/seed.ts:256`.
+- **Evidence:** `curl -s https://programmer-blog.jesspete.shop/admin/login | grep 'dev credentials'` → `$ dev credentials — author@devlog.example / dev-password-12345 (set by the seed script; override with the DEV_AUTHOR_PASSWORD env var)`. Verified **live in production**, 2026-09-04. The paragraph renders unconditionally — no `NODE_ENV` check anywhere in the page or `LoginForm`.
+- **Impact:** Any deployment with a working DB (i.e. as soon as the C-36 deployment gap is fixed and the seed runs with defaults) is instantly compromisable by any visitor. Today the broken DB is the only thing preventing a full admin takeover.
+- **Severity justification:** unauthenticated data exposure + authentication failure (OWASP A07), internet-facing (+1 tier).
+- **Recommended fix:** **R-37** — gate the hint behind `NODE_ENV === 'development'`; additionally rotate the seeded password away from a documented constant (`DEV_AUTHOR_PASSWORD` already supports this).
+- **Confidence:** Verified (live HTTP evidence + source).
+
+### C-36 — Standalone deploys silently boot against an empty database → 500s on every DB-backed route
+- **Location:** `packages/db/src/client.ts` (`resolveDbPath()` + `new Database(dbPath)`), `apps/web/src/lib/env.ts` (`DATABASE_PATH` default `./devlog.db`).
+- **Evidence (live):** `/archive` + `/posts/[slug]` → 500 error boundary (React error #441). **Evidence (local repro, verified):** booting the standalone server with CWD = repo root and no `DATABASE_PATH` yields `SqliteError: no such table: posts` for `/archive` and `/posts/[slug]` while `/` stays 200 (landing sections use hardcoded mockup fallback data, so the outage is invisible on the landing page); booting with `DATABASE_PATH` pointed at the migrated+seeded file returns 200 for every route. Live RSS has 0 `<item>`s and the sitemap has only 3 `<url>`s — the deployed server resolved `./devlog.db` against a CWD where the file did not exist, and better-sqlite3 **created an empty database instead of failing**.
+- **Impact:** Two of the three top content routes are down in production; the failure is silent (empty 200 feeds, misleading "Server error" on login) and invisible on the landing page, which delayed detection until this audit.
+- **Recommended fix:** **R-38** — fail fast with an actionable error when the resolved DB file does not exist (instead of silently creating an empty one), plus deployment documentation (**R-47**): set an absolute `DATABASE_PATH`, run `db:migrate && db:seed`, set `NEXT_PUBLIC_SITE_URL`.
+- **Confidence:** Verified (local reproduction + live symptom match).
+
+## 🟠 High Findings (3 items)
+
+### H-34 — Session tokens never expire server-side; the 30-day TTL is client-side only
+- **Location:** `packages/auth/src/tokens.ts` — `createSessionToken()` emits `<userId>.<hmac(userId)>`; `verifySessionToken()` validates only the HMAC. `SESSION_TTL_SECONDS` (30 d) is applied solely as the cookie's `maxAge` in `signIn()`.
+- **Evidence:** Code inspection (verified): no timestamp/iat/exp claim exists in the token; `tokens.ts` has no time input at all. The `sessions` table (`packages/db/src/schema.ts:38`) is never queried anywhere in the codebase — there is no server-side session state to revoke.
+- **Impact:** A stolen or leaked session cookie is valid **forever** (until secret rotation); sign-out deletes the cookie client-side but cannot invalidate a copy. This defeats the documented "30-day TTL" contract.
+- **Recommended fix:** **R-39** — embed the issuance epoch in the token (`<userId>.<iat>.<hmac(userId.iat)>`) and enforce `iat + SESSION_TTL > now` in `verifySessionToken()`; old-format tokens are rejected (single-author blog: re-login is acceptable and safer).
+- **Confidence:** Verified.
+
+### H-35 — Comment rate limiter shares one bucket per post → comments silently unavailable after 10 posts/hour
+- **Location:** `apps/web/src/features/blog/actions.ts:80-84` (`rateKey = comment:${ctx.ip ?? postId}`) + `apps/web/src/features/blog/comment-form.tsx:71` (calls `createComment({ postId, body })` with no `ctx.ip`).
+- **Evidence:** The only production caller never passes an IP, so every visitor of a post shares a single 10-requests/hour bucket. The same pattern keys `subscribe` by email (`features/subscribe/actions.ts:57`) — documented as "per-IP" but actually per-email. `features/auth/actions.ts` already implements the correct pattern (`getClientIp` via `x-forwarded-for`); it was never extracted for reuse.
+- **Impact:** DoS-by-crowd: the 11th legitimate comment on any post in an hour fails for everyone with "Too many comments." The rate limit also cannot actually throttle attackers by IP.
+- **Recommended fix:** **R-40** — extract `getClientIp` into `apps/web/src/lib/`, read `headers()` server-side inside the actions, fall back to the email/post key only when no proxy headers exist.
+- **Confidence:** Verified.
+
+### H-36 — Production serves `http://localhost:3000` as canonical/RSS/sitemap/robots URL
+- **Location:** deployment env (`NEXT_PUBLIC_SITE_URL` unset) + consumers: `lib/rss.ts`, `app/api/sitemap.xml`, `app/api/robots.txt`, `app/layout.tsx` (canonical + OG), `app/api/confirm/route.ts` (redirect target).
+- **Evidence (live):** `robots.txt` ends `Sitemap: http://localhost:3000/sitemap.xml`; RSS `<link>http://localhost:3000</link>`; sitemap `<loc>http://localhost:3000/</loc>`; live login page canonical = `http://localhost:3000`.
+- **Impact:** Feed readers and crawlers index localhost URLs; canonical/OG tags poison SEO; the confirm-email redirect sends real subscribers to localhost.
+- **Recommended fix:** **R-41** — boot-time production warning when `NEXT_PUBLIC_SITE_URL` is the localhost default (actionable signal in server logs); **R-47** — README production checklist entry. (The URL itself is deploy config; code cannot infer it reliably behind proxies.)
+- **Confidence:** Verified (live evidence; code path inspected).
+
+## 🟡 Medium Findings (6 items)
+
+### M-34 — The documented 5-layer rule is violated by the codebase as written
+- **Evidence:** `rg "from 'drizzle-orm"` in Layer 1/2: `app/api/confirm/route.ts:18`, `app/(public)/unsubscribe/page.tsx:15`, `app/(public)/preferences/page.tsx:19`, `app/(auth)/admin/(dashboard)/comments/page.tsx:7`, `app/(auth)/admin/(dashboard)/posts/[id]/page.tsx:8`, `features/admin/actions.ts:20`, `features/blog/actions.ts:21`, `features/subscribe/actions.ts:26` — plus direct `@devlog/db` imports in Layer 1 route files (`rss.xml`, `sitemap.xml`, `posts/[slug]`, `archive`, `opengraph-image`). AGENTS.md/CLAUDE.md/README declare these imports "review-blocking" violations.
+- **Reality check:** the actual pattern is consistent and safe — route/action files import query functions from `@devlog/db` (whose boundary is `packages/db/src/queries.ts`) and drizzle-orm **operators** (`eq`/`and`); nobody imports `drizzle-orm/sqlite-core` or `better-sqlite3` outside `packages/db`/lib.
+- **Impact:** docs-vs-code contract mismatch; the stated rule cannot be enforced (and would fail the existing codebase wholesale).
+- **Recommended fix:** **R-46** — amend the layer tables to codify the real contract: operators + `@devlog/db` query functions allowed; `drizzle-orm/sqlite-core`, `better-sqlite3`, and the raw client remain forbidden outside lib/`packages/db`.
+- **Confidence:** Verified.
+
+### M-35 — `SESSION_COOKIE` constant bypassed in 9 files
+- **Evidence:** `rg "'devlog_session'"` → `features/admin/actions.ts:56`, `(dashboard)/page.tsx:36`, `comments/page.tsx:22`, `subscribers/page.tsx:20`, `posts/new/page.tsx:21`, `posts/page.tsx:25`, `posts/[id]/page.tsx:32`, `settings/page.tsx:18`, `subscribers/export/route.ts:32`. AGENTS.md/CLAUDE.md mandate reading the cookie via the exported constant.
+- **Recommended fix:** **R-42** (mechanical replacement + a source-scan regression test).
+- **Confidence:** Verified.
+
+### M-36 — GitHub stats fetch has no timeout
+- **Evidence:** `apps/web/src/lib/github.ts:24-32` — `fetch(url, …)` with no `AbortSignal`; a hung GitHub connection stalls `GET /api/github-stats` until the platform kills it. Fallback-on-error is implemented, but only after the hang.
+- **Recommended fix:** **R-43** — `AbortSignal.timeout(5000)`.
+- **Confidence:** Verified.
+
+### M-37 — Broken DB is silent on the feed surface: RSS/sitemap return 200 with zero items
+- **Evidence:** live RSS contains 0 `<item>`s and returns 200 (same root cause as C-36). Feed readers treat this as "no new posts" and never alert.
+- **Recommended fix:** covered by **R-38** (fail-fast client turns silent-empty into loud 500) — recorded here so the feed surface is explicitly re-tested after R-38.
+- **Confidence:** Verified (live).
+
+### M-38 — CSV export lacks formula-injection guard
+- **Evidence:** `subscribers/export/route.ts:21-27` — `csvEscape()` handles quotes/commas/newlines but not leading `=`, `+`, `-`, `@`. Zod's email validation limits exploitability, but `preferences.frequency` and future columns are free-form strings.
+- **Recommended fix:** **R-45** — prefix dangerous leading characters with `'`.
+- **Confidence:** Verified.
+
+### M-39 — JSON-LD output not escaped against `</script>` breakout
+- **Evidence:** `apps/web/src/components/json-ld.tsx:22` — `JSON.stringify(data)` emitted via `dangerouslySetInnerHTML`. JSON.stringify does not escape `<`, so any `<`-containing string in Article schema fields (post headline/description — author-controlled, but also future user-derived fields) can terminate the script tag early.
+- **Recommended fix:** **R-44** — escape `<` (and U+2028/U+2029) to `\uXXXX` before emission.
+- **Confidence:** Verified (code inspection; exploit requires author-role input).
+
+## 🟢 Low Findings (4 items)
+
+- **L-34 — Stale comment in `proxy.ts`:** docblock claims "`middleware.ts` is kept as a shim re-export for ecosystem compat" — no `middleware.ts` exists anywhere (verified: `ls src/middleware.*` → not found). Fix in **R-47**.
+- **L-35 — Stale comment in `tokens.ts`:** docblock says "Used by apps/web/src/middleware.ts (Edge Runtime)" — that file no longer exists; the consumer is `proxy.ts`. Fix in **R-47**.
+- **L-36 — Env-var documentation drift:** README/CLAUDE document `CRON_SECRET` as "shared secret for `POST /api/cron/*` endpoints" but no cron route exists (verified: `apps/web/src/app/api/` = confirm, github-stats, robots.txt, rss.xml, sitemap.xml); `DEV_AUTHOR_PASSWORD` is real and consumed (`env.ts:41`, `seed.ts:256`) but documented nowhere; README says "12 environment variables" while `env.ts` defines 13 + `NODE_ENV`. Fix in **R-47**.
+- **L-37 — Table-count documentation drift:** AGENTS.md/CLAUDE.md/SKILL.md say "7 tables" then list 8 (`users, sessions, posts, tags, postsToTags, subscribers, comments, siteSettings`). The `sessions` table is also dead schema (never queried — see H-34) and should be marked reserved. Fix in **R-47**.
+
+## ✅ Passed Checks (evidence-backed)
+
+- `pnpm check-types` 5/5 packages, 0 errors (run 2026-09-04).
+- `pnpm lint` 5/5 packages, 0 errors, 0 warnings.
+- `pnpm test` 299/299 (242 web / 17 db / 16 auth / 21 types / 3 email) — matches the README badge exactly.
+- `pnpm audit --prod` and `pnpm audit`: **0 vulnerabilities**.
+- Secret-pattern scan over `apps/` + `packages/`: clean.
+- SQL is parameterized throughout (drizzle `sql` templates bind values, never concatenate).
+- `verifyPassword`: scrypt N=2^15/r=8/p=1, `timingSafeEqual`, format-prefixed hashes (OWASP-conformant).
+- `rate-limit.ts` sliding window is correct per-key; `subscribe` is idempotent; confirm/unsubscribe tokens are HMAC-verified with timing-safe compare.
+- Admin mutations (`createPost`, `updatePost`, `deletePost`, `moderateComment`, `updateSiteSettings`) all Zod-validate and call `requireAuthor` first.
+- Comment bodies render as plain text (`whitespace-pre-wrap`) — no XSS vector in `comment-list.tsx`.
+- CSV export is `requireAuthor`-gated with `no-store`.
+- Security headers on live match `next.config.ts` exactly (CSP without `unsafe-eval`, HSTS preload, XFO DENY).
+- Trunk-based history, atomic Conventional Commits, TDD evidence in co-located test files.
+
+## Pass 4 sign-off status
+
+**NOT SAFE TO SHIP** as-is: C-35 is a public credentials disclosure on the production login page and C-36 keeps two top routes down in production. Both are repo-fixable (R-37, R-38); H-34/H-35 close real auth/availability gaps (R-39, R-40); the remaining items are hardening + contract alignment. Re-audit after R-37..R-47 gates the release. The deployment-side actions (set `DATABASE_PATH`, `NEXT_PUBLIC_SITE_URL`, run migrations + seed, rotate the seeded password) are documented in **R-47** and require operator access to the deploy environment.
+
+*End of Pass 4 addendum.*

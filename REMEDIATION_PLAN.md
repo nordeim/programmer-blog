@@ -1,10 +1,10 @@
 # `/dev/log` — Remediation Plan
 
 **Project:** `/dev/log — Notes from a Programmer's Desk`
-**Status:** Pass 1 (2026-08-26, commit 9a83202) + Pass 2 (2026-09-03, Phase 9.5) COMPLETE (R-1..R-29). R-30 open backlog. **Pass 3 (2026-09-03) opened for the post-deployment E2E regressions R-31..R-36 — see §8 Pass 3.**
+**Status:** Pass 1 (2026-08-26, commit 9a83202) + Pass 2 (2026-09-03, Phase 9.5) + Pass 3 (2026-09-03, R-31..R-36) COMPLETE (R-30 open backlog). **Pass 4 (2026-09-04, R-37..R-47) COMPLETE — live E2E + security re-audit remediation, see §10.**
 **Companion Document:** `CODE_REVIEW_AUDIT_REPORT.md` (the audit that produced these tasks)
 **Methodology:** Test-Driven Development (Red → Green → Refactor) per `skills/tdd` + `skills/tdd-workflow`
-**Last Updated:** 2026-09-03
+**Last Updated:** 2026-09-04
 
 > **How to use this document.** Each task (R-N) maps to one or more audit findings (C-N / H-N / M-N from the audit report). Tasks are grouped into 5 remediation phases (P1–P5) and sequenced so that earlier fixes unblock later ones. Every task has: (a) a RED test to write first, (b) a GREEN implementation, (c) a REFACTOR step, and (d) an acceptance gate. Do not move to the next task until its acceptance gate is green.
 
@@ -874,3 +874,194 @@ After P1–P5 are complete and all gates are green, the agent will:
 ---
 
 *End of remediation plan.*
+
+---
+
+## 10. Pass 4 (2026-09-04) — Live E2E + security re-audit remediation (R-37..R-47)
+
+**Trigger:** Pass 4 audit (`CODE_REVIEW_AUDIT_REPORT.md` "Pass 4 Addendum") — browser E2E against the live deployment plus a full security review found 2 Critical / 3 High / 6 Medium / 4 Low findings. Methodology unchanged: TDD (Red → Green → Refactor) per `skills/tdd` + `skills/tdd-workflow`; audit per `skills/code-review-and-audit` (deep).
+
+| Phase | Goal | Tasks | Fixes | Commit Cadence |
+|-------|------|-------|-------|----------------|
+| **P1** | Production safety (Critical) | R-37, R-38 | C-35, C-36, M-37 | 2 atomic |
+| **P2** | Auth + availability (High) | R-39, R-40, R-41 | H-34, H-35, H-36 | 3 atomic |
+| **P3** | Contract + hardening (Medium) | R-42, R-43, R-44, R-45 | M-35, M-36, M-39, M-38 | 4 atomic |
+| **P4** | Documentation alignment (Medium/Low) | R-46, R-47 | M-34, L-34..L-37 | 2 atomic |
+
+**Order rationale:** P1 removes the two ship-blockers (credentials disclosure, empty-DB boot) first. P2 closes the highest-impact behavioral gaps (token expiry, per-IP rate limiting, env signal). P3 is mechanical hardening. P4 re-aligns the four contract documents with the as-built codebase — deliberately last so the docs describe the post-remediation reality.
+
+### R-37 — Gate the dev-credentials hint behind development (fixes C-35)
+
+**Files:** `apps/web/src/app/(auth)/admin/login/page.tsx`, `apps/web/src/app/(auth)/admin/login/page.test.tsx`.
+
+**RED 37.1:** In `page.test.tsx`, render the page with `vi.stubEnv('NODE_ENV', 'production')` and assert `queryByText(/dev credentials/)` is `null`; render with `NODE_ENV=development` and assert the hint is present. (Today: hint renders in both → red.)
+
+**GREEN 37.1:** Wrap the `<p>$ dev credentials…</p>` block in `{process.env.NODE_ENV === 'development' && (…)}` — same pattern as the R-5 secret policy: dev convenience, prod silence.
+
+**REFACTOR 37.1:** None required (single call site).
+
+**Acceptance gate:**
+- [ ] `pnpm --filter @devlog/web test` green (both new assertions).
+- [ ] `curl -s http://localhost:3100/admin/login | grep 'dev credentials'` → empty on a production build.
+
+---
+
+### R-38 — DB client fails fast when the database file is missing (fixes C-36, M-37)
+
+**Files:** `packages/db/src/client.ts`, `packages/db/src/queries.test.ts` (new describe block).
+
+**RED 38.1:** Integration test: `process.env.DATABASE_PATH = join(tmpdir(), 'nonexistent', 'missing.db')` → first `db` access must throw an error whose message contains all of: the resolved absolute path, "does not exist", and the remedy ("run db:migrate / set DATABASE_PATH"). (Today: better-sqlite3 silently creates the file → red.)
+
+**GREEN 38.1:** In `createDrizzleClient()`, before `new Database(dbPath)`: if `!fs.existsSync(dbPath)` throw `new Error('[devlog/db] SQLite database not found at <path>. Run "pnpm db:generate && pnpm db:migrate && pnpm db:seed" or set DATABASE_PATH to an absolute path — refusing to boot against an empty database.')`. The lazy proxy keeps the check off the import path (build still evaluates modules without a DB).
+
+**REFACTOR 38.1:** Keep the `:memory:`/existing-file paths unchanged; update `queries.test.ts` ordering if the env-var reuse in one process conflicts (use a fresh temp dir per case).
+
+**Acceptance gate:**
+- [ ] New test red→green; full `pnpm --filter @devlog/db test` green.
+- [ ] Standalone smoke: boot without DB → server logs the actionable error; boot with migrated+seeded `DATABASE_PATH` → `/`, `/archive`, `/posts/[slug]`, `/rss.xml` (with items), `/sitemap.xml` (with post URLs) all 200.
+
+---
+
+### R-39 — Server-side session expiry (fixes H-34)
+
+**Files:** `packages/auth/src/tokens.ts`, `packages/auth/src/index.test.ts`.
+
+**RED 39.1:** Unit tests: (a) `createSessionToken` emits a 3-part token whose middle part parses as an integer epoch; (b) `verifySessionToken` returns the userId for a fresh token; (c) a token whose `iat` is older than `SESSION_TTL` returns `null`; (d) a legacy 2-part token (valid HMAC, old format) returns `null`; (e) tampering with `iat` invalidates the HMAC → `null`. (Today: (a),(c),(d) impossible → red.)
+
+**GREEN 39.1:** Token v2 format `<userId>.<iat-seconds>.<hmac(userId + '.' + iat)>`. `verifySessionToken` recomputes the HMAC over the same joined payload and enforces `now - iat <= SESSION_TTL_SECONDS`. Export a `SESSION_TTL` unchanged; keep `signToken`/`verifyToken` (transaction tokens) as-is — they are single-use flows already validated against expected payloads.
+
+**REFACTOR 39.1:** Update `signIn` cookie `maxAge` comment; document the breaking change (all existing sessions invalid once → users re-login; single-author surface, acceptable).
+
+**Acceptance gate:**
+- [ ] `pnpm --filter @devlog/auth test` green; login + admin smoke against a local standalone build still passes.
+
+---
+
+### R-40 — Real client-IP rate limiting for comments + subscribe (fixes H-35)
+
+**Files:** new `apps/web/src/lib/request-ip.ts` (+ `.test.ts`), `apps/web/src/features/blog/actions.ts`, `apps/web/src/features/subscribe/actions.ts`, `apps/web/src/features/auth/actions.ts` (refactor to reuse).
+
+**RED 40.1:** (a) Unit tests for `getClientIpFromHeaders(get)`: `x-forwarded-for` single value, comma list (first entry), `x-real-ip` fallback, `'unknown'` when absent. (b) Behavior test: calling `createComment(input)` with a mocked `next/headers` returning an IP → the rate-limit key starts with `comment:<ip>` (assert via repeated calls: 11th call from the same IP fails, a different IP still passes). (Today: key is `comment:<postId>` → red.)
+
+**GREEN 40.1:** Implement `getClientIpFromHeaders` (moved from `features/auth/actions.ts`); in `createComment` and `subscribeToNewsletter`, read `await headers()` server-side, derive the IP, and use it for the bucket key (keep the `ctx.ip` override for tests; keep the email/post fallback only when the IP is `'unknown'`).
+
+**REFACTOR 40.1:** Switch `signInAction` to the shared helper; delete its private copy.
+
+**Acceptance gate:**
+- [ ] New tests green; `pnpm --filter @devlog/web test` green; subscribe/comment flows smoke-tested locally.
+
+---
+
+### R-41 — Production boot warning for localhost site URL (fixes H-36, code side)
+
+**Files:** `apps/web/src/lib/env.ts`, `apps/web/src/lib/log.test.ts` or new `env` assertion in existing tests.
+
+**RED 41.1:** With `NODE_ENV=production` and `NEXT_PUBLIC_SITE_URL` unset (default `http://localhost:3000`), loading `env` emits a `console.warn` containing "NEXT_PUBLIC_SITE_URL" and "localhost". (Today: silent → red.)
+
+**GREEN 41.1:** After `loadEnv()` resolves in production, if `env.NEXT_PUBLIC_SITE_URL` matches `^https?://(localhost|127\.0\.0\.1)` emit an actionable warning (feeds/canonical/sitemap will advertise the wrong origin). Dev stays quiet.
+
+**Acceptance gate:**
+- [ ] New test green; production standalone boot logs the warning exactly once.
+
+---
+
+### R-42 — Use the `SESSION_COOKIE` constant everywhere (fixes M-35)
+
+**Files:** 9 files listed in M-35 + new `apps/web/src/session-cookie-scan.test.ts`.
+
+**RED 42.1:** Source-scan test: recursively read `apps/web/src/**/*.{ts,tsx}` (excluding tests) and assert the literal `'devlog_session'` appears nowhere (the only allowed home is `packages/auth/src/tokens.ts`). (Today: 9 hits → red.)
+
+**GREEN 42.1:** Replace `jar.get('devlog_session')` with `jar.get(SESSION_COOKIE)` and add the import from `@/lib/auth` in each file.
+
+**Acceptance gate:**
+- [ ] Scan test green; `rg "'devlog_session'" apps/web/src` → 0 hits; full web suite green.
+
+---
+
+### R-43 — Timeout on the GitHub stats fetch (fixes M-36)
+
+**Files:** `apps/web/src/lib/github.ts`, `apps/web/src/lib/github.test.ts`.
+
+**RED 43.1:** Mock `fetch` and assert it receives an `AbortSignal` option; assert that a fetch which never resolves rejects within the timeout window (vi.useFakeTimers + a deferred promise). (Today: no signal passed → red.)
+
+**GREEN 43.1:** `fetch(url, { …, signal: AbortSignal.timeout(5_000) })`; the existing `catch` already returns the fallback stats.
+
+**Acceptance gate:**
+- [ ] New tests green; `/api/github-stats` smoke returns 200.
+
+---
+
+### R-44 — Escape JSON-LD against `</script>` breakout (fixes M-39)
+
+**Files:** `apps/web/src/components/json-ld.tsx`, `apps/web/src/components/json-ld.test.tsx`.
+
+**RED 44.1:** Render `<JsonLd data={{ name: '</script><script>alert(1)</script>' }} />` and assert the emitted `__html` contains no literal `</script>` (the `<` must be `\u003c`). Include U+2028/U+2029 cases. (Today: literal `</script>` present → red.)
+
+**GREEN 44.1:** Add `serializeJsonLd(data)` = `JSON.stringify(data).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')` and use it in the script element.
+
+**Acceptance gate:**
+- [ ] New tests green; landing page JSON-LD still renders valid structured data (smoke + existing tests).
+
+---
+
+### R-45 — CSV formula-injection guard (fixes M-38)
+
+**Files:** `apps/web/src/app/(auth)/admin/(dashboard)/subscribers/export/route.ts` (+ a co-located unit test for `csvEscape` via export or a small helper module).
+
+**RED 45.1:** Unit tests: `csvEscape('=1+1')` → `"'=1+1"`, same for leading `+`, `-`, `@`; values without dangerous prefixes unchanged; existing quoting rules unchanged. (Today: `=1+1` passes through → red.)
+
+**GREEN 45.1:** In `csvEscape`, after the existing quote handling, prefix a `'` when the value matches `/^[=+\-@]/`.
+
+**Acceptance gate:**
+- [ ] New tests green; CSV export smoke still returns a valid attachment.
+
+---
+
+### R-46 — Codify the real 5-layer import contract (fixes M-34)
+
+**Files:** `AGENTS.md` (layer table), `CLAUDE.md` (§Project-Specific Standards), `README.md` (§The Golden Rule), `programmer-blog_SKILL.md` (§1/§20 as applicable).
+
+**Change:** Amend the layer tables to distinguish allowed from forbidden Drizzle usage, matching the as-built codebase:
+- **Allowed everywhere in app/features:** `@devlog/db` query functions (the `packages/db/src/queries.ts` boundary) and drizzle-orm **operators** (`eq`, `and`, `desc`, `count`, …) used with schema fields.
+- **Still forbidden outside `packages/db` + `apps/web/src/lib`:** `drizzle-orm/sqlite-core` (table definitions), `better-sqlite3`, the raw `db` client for new code (route through `@devlog/db` query helpers), and any `drizzle-orm` import in `domain/`.
+
+**Acceptance gate:**
+- [ ] The four documents state the same contract; the rule no longer fails the existing codebase wholesale.
+
+---
+
+### R-47 — Documentation + deploy-contract sync (fixes C-36 ops side, H-36 ops side, L-34, L-35, L-36, L-37)
+
+**Files:** `README.md`, `AGENTS.md`, `CLAUDE.md`, `programmer-blog_SKILL.md`, `apps/web/src/proxy.ts` (comment), `packages/auth/src/tokens.ts` (comment), `REMEDIATION_PLAN.md` (this section), `CODE_REVIEW_AUDIT_REPORT.md` (Pass 4 addendum — already written).
+
+**Tasks:**
+1. **README:** add a "Production deployment checklist" subsection — absolute `DATABASE_PATH` (or CWD-stable path), `pnpm db:migrate && pnpm db:seed` against the deployed file, `BETTER_AUTH_SECRET` + `SIGNED_TOKEN_SECRET` (32+ chars), `NEXT_PUBLIC_SITE_URL=https://programmer-blog.jesspete.shop/`, verify `/archive` + `/posts/[slug]` return 200 and RSS has items before considering the deploy live; troubleshooting rows for the empty-DB boot error and the localhost-URL warning; correct "12 environment variables" → 13 documented vars; `CRON_SECRET` marked "reserved — no cron routes exist yet"; `DEV_AUTHOR_PASSWORD` documented (dev-only seed override).
+2. **AGENTS.md:** fix "7 tables" → 8 (mark `sessions` as reserved/unused by the auth flow); env-var note pointing at the checklist; layer-rule amendment per R-46.
+3. **CLAUDE.md:** same table/env corrections; auth section notes R-39 token v2 format (`<userId>.<iat>.<hmac>` + server-side TTL) and R-38 fail-fast client.
+4. **SKILL.md:** add Lessons L21 (R-38: better-sqlite3 silently creates an empty DB — fail fast on missing file), L22 (R-39: stateless HMAC sessions need an embedded iat to expire), L23 (R-37: dev credential hints must be env-gated), L24 (R-40: read the client IP from `x-forwarded-for` server-side — never key a limiter on postId/email when an IP exists); refresh the env-var table + table count.
+5. **Stale comments:** `proxy.ts` docblock (remove the nonexistent "middleware.ts shim" sentence); `tokens.ts` docblock ("Used by apps/web/src/middleware.ts" → `proxy.ts`).
+
+**Acceptance gate:**
+- [ ] `rg "7 tables" *.md` → 0 hits; `rg "middleware.ts" apps/web/src` → 0 hits (docs references explaining the *rename* are fine); `rg "cron" README.md` documents the reserved status; env-var tables list 13 vars + NODE_ENV.
+
+---
+
+### Pass 4 completion status
+
+| Task | Finding(s) | Status |
+|---|---|---|
+| R-37 dev-credentials gating | C-35 | ✅ Complete |
+| R-38 DB fail-fast + actionable boot error | C-36, M-37 | ✅ Complete |
+| R-39 session token expiry (iat claim) | H-34 | ✅ Complete |
+| R-40 server-side client-IP rate limiting | H-35 | ✅ Complete |
+| R-41 localhost site-URL production warning | H-36 | ✅ Complete (code) — operator must still set `NEXT_PUBLIC_SITE_URL` in the deploy env |
+| R-42 SESSION_COOKIE constant everywhere | M-35 | ✅ Complete |
+| R-43 GitHub fetch timeout | M-36 | ✅ Complete |
+| R-44 JSON-LD script escaping | M-39 | ✅ Complete |
+| R-45 CSV formula-injection guard | M-38 | ✅ Complete |
+| R-46 layer-contract docs precision | M-34 | ✅ Complete |
+| R-47 docs + deploy-contract sync | L-34..L-37, C-36/H-36 ops side | ✅ Complete |
+
+**Deferred to the operator (cannot be done from the repo):** redeploy with `DATABASE_PATH` pointing at a migrated+seeded SQLite file; set `NEXT_PUBLIC_SITE_URL=https://programmer-blog.jesspete.shop/`; rotate/set `DEV_AUTHOR_PASSWORD` (or rely on R-37 gating) before the next production boot; rotate `docs/ssh-key.txt` (carried from L-31).
+
+*End of Pass 4 remediation plan.*
