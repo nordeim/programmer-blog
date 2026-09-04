@@ -51,9 +51,30 @@ const SECURITY_CRITICAL_KEYS = new Set([
   'SIGNED_TOKEN_SECRET',
 ]);
 
+// R-41 (audit H-36): a production deployment whose NEXT_PUBLIC_SITE_URL
+// is still the localhost default advertises the wrong origin in
+// robots.txt, RSS, sitemap and canonical/OG tags (verified live in
+// Pass 4). Warn loudly and actionably — this is deploy config, not
+// something code can infer behind a proxy.
+function warnIfLocalhostSiteUrlInProduction(env: Env): void {
+  if (
+    process.env.NODE_ENV === 'production' &&
+    /^https?:\/\/(localhost|127\.0\.0\.1)/.test(env.NEXT_PUBLIC_SITE_URL)
+  ) {
+    console.warn(
+      '[env] NEXT_PUBLIC_SITE_URL is unset in production — falling back to the localhost default.\n' +
+        `  Feeds (robots.txt, /rss.xml, /sitemap.xml) and canonical/OG tags will advertise "${env.NEXT_PUBLIC_SITE_URL}".\n` +
+        '  Set NEXT_PUBLIC_SITE_URL=https://your-domain.com in the deploy environment.',
+    );
+  }
+}
+
 function loadEnv(): Env {
   const parsed = EnvSchema.safeParse(process.env);
-  if (parsed.success) return parsed.data;
+  if (parsed.success) {
+    warnIfLocalhostSiteUrlInProduction(parsed.data);
+    return parsed.data;
+  }
 
   // Validation failed. In production, this is fatal.
   const issues = parsed.error.issues
@@ -77,7 +98,9 @@ function loadEnv(): Env {
     console.warn(`[env] Invalid environment variables:\n${issues}`);
   }
   // Parse an empty object — Zod fills in every key with its declared default.
-  return EnvSchema.parse({});
+  const env = EnvSchema.parse({});
+  warnIfLocalhostSiteUrlInProduction(env);
+  return env;
 }
 
 export const env = loadEnv();
