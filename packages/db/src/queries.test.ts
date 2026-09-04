@@ -39,6 +39,7 @@ import {
   getSubscriberStats,
   getTagsForPosts,
   getTagsInUse,
+  searchPosts,
 } from './queries';
 import { posts, postsToTags, subscribers, tags, users, comments } from './schema';
 
@@ -215,5 +216,34 @@ describe('postEpochSeconds — R-32 helper unit tests', () => {
     expect(postEpochSeconds(1704067200)).toBe(1704067200);
     expect(postEpochSeconds(null)).toBe(0);
     expect(postEpochSeconds(undefined)).toBe(0);
+  });
+});
+
+// R-66 (audit L-41): user-supplied `%`/`_` must be matched LITERALLY
+// (drizzle `like` has no ESCAPE clause by default, so a bare `%query%`
+// pattern let `%%` match every row), and the result set is bounded.
+describe('searchPosts — R-66 (L-41 wildcard escape + LIMIT)', () => {
+  it('treats % and _ as literal characters, not wildcards', async () => {
+    // A bare `%` used to match every published post.
+    expect((await searchPosts('%')).length).toBe(0);
+    expect((await searchPosts('_')).length).toBe(0);
+    // An ordinary substring still matches (fixture: title 'A', excerpt 'a').
+    expect((await searchPosts('a')).length).toBe(1);
+    expect((await searchPosts('post-a')).length).toBe(0); // slug is not searched
+  });
+
+  it('caps the result set at 50 rows', async () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({
+      id: `plimit-${i}`,
+      slug: `limit-probe-${i}`,
+      title: 'limit probe',
+      excerpt: 'x',
+      contentMdx: '# x',
+      authorId: 'u1',
+      status: 'published' as const,
+      publishedAt: T.a,
+    }));
+    db.insert(posts).values(many).run();
+    expect((await searchPosts('limit probe')).length).toBe(50);
   });
 });

@@ -11,7 +11,7 @@
  *   - raw `sql` fragments against timestamp columns must bind epoch
  *     SECONDS (the stored unit), via `postEpochSeconds` below.
  */
-import { and, count, desc, eq, inArray, isNotNull, isNull, like, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 
 import { db } from './client';
 import { comments, posts, postsToTags, siteSettings, subscribers, tags, users } from './schema';
@@ -62,11 +62,8 @@ export async function getArchivePosts(
 ) {
   const offset = Math.max(0, (page - 1) * pageSize);
   const conditions: ReturnType<typeof eq>[] = [eq(posts.status, 'published')];
-  if (query && query.trim().length > 0) {
-    const pattern = `%${query.trim()}%`;
-    const orClause = or(like(posts.title, pattern), like(posts.excerpt, pattern));
-    if (orClause) conditions.push(orClause);
-  }
+  const searchClause = buildSearchCondition(query);
+  if (searchClause) conditions.push(searchClause);
 
   if (tagSlug && tagSlug.trim().length > 0) {
     const rows = db
@@ -107,11 +104,8 @@ export async function getArchivePosts(
 
 export async function getArchiveCount(tagSlug?: string, query?: string) {
   const conditions: ReturnType<typeof eq>[] = [eq(posts.status, 'published')];
-  if (query && query.trim().length > 0) {
-    const pattern = `%${query.trim()}%`;
-    const orClause = or(like(posts.title, pattern), like(posts.excerpt, pattern));
-    if (orClause) conditions.push(orClause);
-  }
+  const searchClause = buildSearchCondition(query);
+  if (searchClause) conditions.push(searchClause);
 
   if (tagSlug && tagSlug.trim().length > 0) {
     const result = db
@@ -364,19 +358,47 @@ export async function getCommentStats() {
   };
 }
 
-// ── Search (LIKE-based for v1) ──────────────────────────────────────────────
+// ── Search (substring-based for v1) ─────────────────────────────────────────
+
+/** Bound on full-text-ish search results (L-41): the caller renders a page, not a data dump. */
+const SEARCH_LIMIT = 50;
+
+/**
+ * R-66 (audit L-41): the previous implementations matched
+ * `title LIKE %query%` — SQLite treats `%`/`_` as wildcards, so a bare
+ * `%` query matched EVERY row, and drizzle's `like()` operator exposes
+ * no `ESCAPE` clause to neutralize them (a backslash-escaped pattern is
+ * a no-op without `ESCAPE '\'`). Switch to `instr()` substring matching:
+ * the needle is a bound parameter and `instr` interprets it literally,
+ * so `%`/`_` can never widen the match. `lower()` mirrors LIKE's
+ * ASCII-only case-folding. Raw `sql` fragments bind strings only
+ * (R-32: never a `Date`).
+ *
+ * Shared by getArchivePosts / getArchiveCount (the live `?q=` path) and
+ * searchPosts. Returns undefined for blank queries so callers can skip
+ * pushing a condition.
+ */
+function buildSearchCondition(query?: string) {
+  const needle = query?.trim();
+  if (!needle) return undefined;
+  return or(
+    sql`instr(lower(${posts.title}), lower(${needle})) > 0`,
+    sql`instr(lower(${posts.excerpt}), lower(${needle})) > 0`,
+  );
+}
+
 export async function searchPosts(query: string) {
-  const pattern = `%${query}%`;
+  const searchClause = buildSearchCondition(query);
   return db
     .select()
     .from(posts)
     .where(
-      and(
-        eq(posts.status, 'published'),
-        or(like(posts.title, pattern), like(posts.excerpt, pattern)),
-      ),
+      searchClause
+        ? and(eq(posts.status, 'published'), searchClause)
+        : eq(posts.status, 'published'),
     )
     .orderBy(desc(posts.publishedAt))
+    .limit(SEARCH_LIMIT)
     .all();
 }
 
