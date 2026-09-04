@@ -401,6 +401,13 @@ body.theme-anim *::after {
   position: relative;
   box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.5);
 }
+/* R-53 (M-42): a pre block's white-space:pre min-content width (~460px)
+   inflated the single-column mobile grid track, giving the landing page a
+   horizontal scroll on 390px viewports. Grid children carry min-w-0 and
+   the pre scrolls inside the window instead of stretching the track. */
+.code-window pre {
+  overflow-x: auto;
+}
 .code-header {
   background: rgba(255, 255, 255, 0.04);
   border-bottom: 1px solid var(--border);
@@ -775,7 +782,7 @@ body.theme-anim *::after {
 <section class="py-24 md:py-32 px-6" id="snippets" style="background: var(--bg-elev);">
   <div class="max-w-7xl mx-auto">
     <div class="grid lg:grid-cols-12 gap-12 items-start">
-      <div class="lg:col-span-4 lg:sticky" style="top: 120px;">
+      <div class="lg:col-span-4 lg:sticky min-w-0" style="top: 120px;">
         <div class="font-mono text-xs uppercase tracking-widest mb-4" style="color: var(--accent);">// snippet of the week</div>
         <h2 class="font-display font-black text-4xl md:text-5xl mb-6" style="letter-spacing: -0.03em; line-height: 1.05;">
           <span style="font-style: italic; font-weight: 400;">useTypewriter</span>() — the hook powering this hero.
@@ -795,7 +802,7 @@ body.theme-anim *::after {
         </div>
       </div>
       
-      <div class="lg:col-span-8">
+      <div class="lg:col-span-8 min-w-0">
         <div class="code-window">
           <div class="code-header">
             <div class="flex items-center gap-3">

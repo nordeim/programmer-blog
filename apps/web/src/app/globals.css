@@ -501,6 +501,13 @@ body.theme-anim *::after {
   position: relative;
   box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.5);
 }
+/* R-53 (M-42): a pre block's white-space:pre min-content width (~460px)
+   inflated the single-column mobile grid track, giving the landing page a
+   horizontal scroll on 390px viewports. Grid children carry min-w-0 and
+   the pre scrolls inside the window instead of stretching the track. */
+.code-window pre {
+  overflow-x: auto;
+}
 .code-header {
   background: rgba(255, 255, 255, 0.04);
   border-bottom: 1px solid var(--border);

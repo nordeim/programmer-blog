@@ -64,7 +64,7 @@ export function SnippetShowcase() {
     >
       <div className="max-w-7xl mx-auto">
         <div className="grid lg:grid-cols-12 gap-12 items-start">
-          <div className="lg:col-span-4 lg:sticky" style={{ top: 120 }}>
+          <div className="lg:col-span-4 lg:sticky min-w-0" style={{ top: 120 }}>
             <div
               className="font-mono text-xs uppercase tracking-widest mb-4"
               style={{ color: 'var(--accent)' }}
@@ -107,7 +107,7 @@ export function SnippetShowcase() {
             </div>
           </div>
 
-          <div className="lg:col-span-8">
+          <div className="lg:col-span-8 min-w-0">
             <CodeWindow title="useTypewriter.ts" code={SNIPPET_CODE} language="ts" />
             <div className="mt-6">
               <CodeWindow title="usage.tsx" code={USAGE_CODE} language="tsx" />
