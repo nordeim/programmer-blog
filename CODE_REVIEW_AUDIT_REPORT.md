@@ -1179,3 +1179,95 @@ Surfaces re-audited clean (verified): `proxy.ts` guard + `safeNext` (no open red
 
 **Pass 7 sign-off:** C-41 is closed at the source (R-72) with a mandatory operator rotation note; H-40/H-42 and the Medium tier are remediated by R-73..R-81 with regression pins; Lows by R-82..R-93; documentation re-synced by R-94. The committed SSH key (H-41) remains an explicitly risk-accepted operator workflow per the engagement instructions.
 
+
+---
+
+# Pass 8 Addendum (2026-09-04) — Tiered review + security audit + live E2E re-verification
+
+## Scope & method
+
+Fourth full `code-review-and-audit` deep pass (skill `code-review-and-audit`, deep mode via
+native-CLI fallback per its Native Fallback Protocol — Phase 1 `pnpm check-types`/`pnpm lint`,
+Phase 2 `pnpm audit --prod` + secret-pattern scan, Phase 3 `checklist_runner.py` + expert
+triage, Phase 4 `pnpm test`, Phase 5 live response timing, Phase 6 expert review) plus a fresh
+browser E2E (`agent-browser`) and a 30-check HTTP contract suite against the live deployment.
+Every Pass 3–7 fix was re-verified against the running code (459/459 tests green; types/lint
+5/5 packages; build + postbuild standalone verified locally and served 200s).
+
+## Verification ledger
+
+| Check | Method | Result |
+|---|---|---|
+| Types / lint / tests | `pnpm check-types`, `pnpm lint`, `pnpm test` | 5/5 packages clean; **464 tests** (355 web / 41 db / 40 auth / 21 types / 7 email) post-remediation; 459 pre-remediation |
+| Dependency audit | `pnpm audit --prod` (networked) | **41 vulnerabilities (2 critical / 15 high / 19 moderate / 5 low)** → C-42 |
+| Live routes | curl contract suite (30 checks) | 30/30 pass (routes, single-h1, canonical=prod, no localhost leak, RSS 9 items, sitemap ≥17 locs, admin 307, static assets 200) |
+| Security headers | live header inspection | CSP (incl. R-81 base-uri/object-src/form-action), XCTO, XFO, Referrer-Policy, HSTS all present |
+| Browser E2E | agent-browser (desktop + 390px) | theme switch + persistence, subscribe success copy, comment moderation copy, admin guard redirect, wrong-creds generic error, invalid unsubscribe token calm error, 404, no horizontal scroll, **zero console errors**, TTFB 0.2–0.4s |
+| Scanner triage | `checklist_runner.py` raw output | All project-code findings false positives or sanctioned patterns (fixture creds in `*.test.ts`, radix-bearing `parseInt`, the two constant `dangerouslySetInnerHTML` sinks, one documented eslint-disable in a test mock); rest located in read-only `skills/**` |
+| Byte-level anomaly check | node codepoint dumps | Two apparent syntax corruptions (`rate-limit.ts`, subscribers export route) were **display artifacts of the review tooling**, not source defects — raw codepoints are valid TS |
+
+## Findings
+
+### 🔴 Critical
+
+**C-42 — `pnpm check` release gate is broken: `pnpm audit --prod` reports 41 vulnerabilities, root cause a dead runtime dependency (`react-email`) and inert workspace overrides**
+- **Location:** `packages/email/package.json` `dependencies` (`react-email: ^3.0.7`); `pnpm-workspace.yaml` `overrides` block.
+- **Evidence:** `pnpm audit --prod` → `41 vulnerabilities found (5 low / 19 moderate / 15 high / 2 critical)`; `pnpm why next` in `packages/email` → `react-email 3.0.7 └── next 15.1.2`; `rg "from 'react-email'"` over `apps/` + `packages/` → zero hits; the lockfile resolves `react-email > next: 15.1.2` and `esbuild: 0.23.0`, `glob: 10.3.4`, `@babel/core: 7.24.5` **despite** `pnpm-workspace.yaml` overrides pinning `react-email>next: ^16.0.0`, `esbuild: ^0.25.0`, `glob: ^11.0.3`, `"@babel/core": ^7.29.6`.
+- **Impact:** The 2 critical advisories target `next@15.1.2` (React Flight RCE, middleware authorization bypass) plus 15 high (SSRF in Server Actions, request smuggling, DoS, cache poisoning). The vulnerable tree is **not reachable at runtime** (the app bundle uses Next 16.3.4; the `react-email` preview CLI is never imported or executed), so the exposure is supply-chain/audit-integrity rather than a live RCE — but the repo's own release gate (`pnpm check` includes `pnpm audit --prod`) now **fails**, blocking every future release, and the README's "0 vulnerabilities" claim is false as of the current advisory DB.
+- **Root cause (two layers):** (1) `react-email` is the dev-preview CLI for React Email; `packages/email` only needs `@react-email/components` + `@react-email/render` — declaring the CLI as a runtime dependency drags `next@15.1.2` into the **prod** dependency graph. (2) The overrides moved from `package.json#pnpm.overrides` to `pnpm-workspace.yaml` under a comment claiming "pnpm 9.15+ reads overrides from here" — **false for pnpm 9.15.4** (pnpm only honors workspace-level `overrides` from 10.0.0), so every pin is inert and the previous "audit stays 0" posture silently depended on the advisory DB not yet flagging `next@15.1.2` (Pass 7 I-14 could not run the audit in its sandbox).
+- **Severity justification:** Critical-tier advisories + the repo's own release gate failing + internet-facing production deployment (override conditions: +1 tier).
+- **Fix:** **R-95** — remove `react-email` from `packages/email` runtime deps (regression-pinned by a package-manifest scan test); correct the misleading override comment.
+- **Confidence:** Verified (executed against the live registry).
+
+### 🟠 High
+
+**H-43 — `signIn()` user-enumeration timing side-channel: unknown emails skip scrypt entirely**
+- **Location:** `packages/auth/src/index.ts:80-92` — `if (!user) return { ok:false, error: genericError }` happens **before** any scrypt work.
+- **Evidence:** the known-email + wrong-password path runs `verifyPassword()` (scrypt N=2^15 ≈ 50–100ms); the unknown-email path returns immediately (~0ms). OWASP ASR v4 §2.4.4 / Authentication Failures: response behavior must be indistinguishable.
+- **Impact:** an attacker can distinguish a valid author email from an invalid one by timing login responses. Mitigating context: single-author blog, admin login only — enumeration value is low, but the fix is one constant.
+- **Fix:** **R-96** — perform a dummy scrypt verification against a pre-generated constant hash for the unknown-user branch (TDD-pinned).
+- **Confidence:** Verified by code inspection (response timing not measured in this environment; scrypt cost parameters verified in `password.ts`).
+
+### 🟡 Medium
+
+**M-56 — CLAUDE.md and AGENTS.md misstate the `pnpm check` gate composition**
+- **Location:** `CLAUDE.md` Build Commands table ("`pnpm check` | **The full quality gate:** `check-types && lint && test && build`") and `AGENTS.md` §Commands ("`pnpm check` runs all four").
+- **Evidence:** `package.json` → `"check": "pnpm check-types && pnpm lint && pnpm test:coverage && pnpm audit --prod && pnpm build"` — five stages including coverage thresholds and the (now gate-blocking) audit.
+- **Impact:** agents following CLAUDE.md/AGENTS.md believe audit/coverage are advisory, not release-blocking — exactly the class of drift that let C-42 land unnoticed.
+- **Fix:** **R-97** — document the five-stage gate in both files.
+- **Confidence:** Verified.
+
+**M-57 — `programmer-blog_SKILL.md` stale test counts / project state (4 locations) + Env interface drift**
+- **Location:** front-matter `project_state` (L13), header note (L28), §2.3 (L157), §11 Pre-Ship Checklist (L1000) all claim "405 tests green (322 web + 33 db + 26 auth + 21 types + 3 email)" and "Passes 4–6 (R-37..R-70) complete"; §20.2 `Env` type omits `DEV_AUTHOR_PASSWORD`.
+- **Evidence:** actual suite = **459 tests (355 web / 41 db / 37 auth / 21 types / 5 email)**; Pass 7 (R-72..R-94) is complete and §12.26–12.31 already document it — the headers contradict the body.
+- **Fix:** **R-97** — sync counts, state line, and the §20.2 interface.
+- **Confidence:** Verified.
+
+### 🟢 Low
+
+**L-57 — `pnpm-workspace.yaml` comment falsely claims pnpm 9.15+ reads `overrides`**
+- **Location:** `pnpm-workspace.yaml:5` — "pnpm 9.15+ / 10+ reads overrides from here".
+- **Impact:** a future agent "fixing" dependency security would edit these inert pins and observe zero effect — a documented-false-config trap (the direct enabler of C-42's second layer).
+- **Fix:** **R-95** — correct the comment to state the pnpm ≥10 requirement (and that under 9.15.4 the pins are inert).
+- **Confidence:** Verified (lockfile resolution contradicts the pins).
+
+### ⚪ Informational
+
+- **I-16 — live CDN serves a stale pre-R-75 robots.txt until edge expiry:** cache-busted origin responses are correct (`Sitemap: https://programmer-blog.jesspete.shop/sitemap.xml`, `s-maxage=3600` — R-75 deployed and verified live); the default URL still returns the old 24h-cached copy (localhost sitemap) from the Cloudflare edge. Self-heals within ≤24h of the deploy that shipped R-75; operator may purge the CF cache to accelerate. No code change.
+- **I-17 — scanner false-positive triage (standing note):** as in Pass 7 (I-12), no automated finding in project code survived manual verification; the substantive Pass 8 findings (C-42/H-43) came from expert review and live verification. Two apparent source corruptions were disproven at byte level before reporting — recorded as a methodology reminder to verify findings against raw bytes/diagnostics rather than rendered tool output.
+- **I-18 — sticky nav can transiently cover bottom-of-page CTAs at full scroll:** `agent-browser` actionability blocked one subscribe-button click at max scroll (`scrollintoview` resolved; measured nav bottom 72px vs button top 265px after auto-scroll). Standard fixed-nav behavior; no change.
+- **I-19 — committed `docs/ssh-key.txt` remains an explicitly risk-accepted operator workflow** (standing note from Passes 6–7): rotation/deploy-key follow-up remains open with the operator.
+
+## Remediation (§14 of REMEDIATION_PLAN.md)
+
+| ID | Finding | Fix | Verification |
+|---|---|---|---|
+| **R-95** | C-42 + L-57 | Remove `react-email` from `packages/email` runtime deps via `pnpm --filter @devlog/email remove react-email`; correct the `pnpm-workspace.yaml` overrides comment; add `packages/email/src/deps-scan.test.ts` (RED→GREEN) pinning the manifest | `pnpm audit --prod` → 0; full suite green |
+| **R-96** | H-43 | Unknown-user branch performs a dummy scrypt verify against a constant hash (`packages/auth/src/index.ts`); new `index.timing.test.ts` (RED→GREEN) | `pnpm --filter @devlog/auth test` green incl. new pin |
+| **R-97** | M-56 + M-57 | Doc sync: CLAUDE.md + AGENTS.md gate composition; SKILL.md counts/state/interface; README Audit Status Pass 8 paragraph | Manual review vs `package.json` + test run |
+
+## Expert review sign-off (Phase 6)
+
+Surfaces re-audited clean (verified): all Server Actions auth-before-mutation + Zod boundaries · edge `proxy.ts` + `safeNext` (R-60 holds) · session token v2 TTL + constant-time compare · purpose-tagged transaction tokens (R-80 holds: confirm 7-day TTL, manage long-lived, legacy v1 manage-only) · rate limiter bounded + rightmost-XFF keys (R-59/R-76 hold) · `instr()` search + epoch-seconds binding (R-66/R-32 hold) · CSV escaping + tab/CR formula guard (R-45/R-84 hold) · JSON-LD `<`-escaping (R-44 holds) · `env.ts` boot-throw (R-61/R-73 hold — re-verified by the local build failing fast on empty secrets) · seed prod-password guard (R-57/R-92 hold) · `.env.example` placeholder-clean (R-72 holds) · `unsubcribe` GET is write-free (R-74 holds) · robots cache policy (R-75 holds at origin).
+
+**Pass 8 sign-off:** C-42 is closed at the source (R-95 removes the only vulnerable dependency subtree rather than papering over it with inert pins); H-43 is closed with a behavioral regression pin (R-96); documentation is re-synced to the five-stage gate and the 459-test baseline (R-97). The `pnpm check` gate is green end-to-end after remediation (verified locally, networked registry).

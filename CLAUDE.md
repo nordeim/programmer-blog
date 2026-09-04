@@ -185,7 +185,7 @@ pnpm dev           # Boots Next.js at http://localhost:3000
 | `pnpm db:setup` | One-shot `generate && migrate && seed` (from-scratch init) |
 | `pnpm db:studio` | Open Drizzle Studio |
 | `pnpm clean` | Remove `node_modules`, `.turbo`, build artifacts |
-| `pnpm check` | **The full quality gate:** `check-types && lint && test && build` |
+| `pnpm check` | **The full quality gate:** `check-types && lint && test:coverage && audit --prod && build` (five stages, Pass 8 doc sync R-97) |
 
 **Single-package commands** (run from package dir):
 ```bash

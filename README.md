@@ -5,7 +5,7 @@
 [![TypeScript 5.9](https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS v4](https://img.shields.io/badge/Tailwind-v4-38bdf8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![pnpm](https://img.shields.io/badge/pnpm-9.15-f69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
-[![Tests: 459](https://img.shields.io/badge/tests-459-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
+[![Tests: 464](https://img.shields.io/badge/tests-464-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
 [![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red)](#license)
 
 > Notes from a programmer's desk — on code, systems, and the strange joy of debugging at 2am.
@@ -69,6 +69,8 @@ Current audit posture: **0 vulnerabilities** in `pnpm audit --prod` — 0 critic
 **Pass 5 (2026-09-04, live E2E verification of the remediated deployment):** with a working seeded database on the live site, a fresh browser E2E verified every Pass 4 fix (C-31/C-35/C-36/R-34 hold) and uncovered **C-37** — every Server Action mutation (`createComment`, `createPost`, `updatePost`, `deletePost`, `moderateComment`, `updateSiteSettings`) 500-ed in production because `'use server'` files exported Zod schema objects, which Next.js 16 forbids (module-evaluation throw invisible to the unit suite). Fixed in R-48 (schemas moved to plain modules + a source-scan regression test), alongside real tags in the archive (R-50/R-51), a tags-in-use filter dropdown, hourly revalidation for prerendered URL-bearing surfaces so canonical/OG URLs stop advertising the build machine's localhost (R-49/R-52), a mobile grid-blowout fix landed mockup-first (R-53), single-`<h1>` post pages (R-54), and calmer unsubscribe error copy (R-55). Full findings, evidence and the live E2E table in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 5 Addendum"; tasks in `REMEDIATION_PLAN.md` §11.
 
 **Pass 7 (2026-09-04, tiered review + security audit + live E2E):** the third full `code-review-and-audit` deep pass plus a fresh browser E2E verified every Pass 3–6 fix still holds, then found **C-41** — the tracked `.env.local.example` file carried the production-faithful secret set (session/token HMAC secrets, a filled author password, the real deployment host) under a `.example` name (placeholders now; mandatory operator rotation recorded) — and **H-40**, where present-but-empty env vars (`RESEND_API_KEY=` from the documented quick start) crashed every production build (fixed in R-73: empty = unset). Also fixed: the unsubscribe page performed its destructive DB write during the GET render, so email prefetchers could silently unsubscribe users (H-42 → POST-only via a `confirmUnsubscribe` Server Action); transaction tokens gained a purpose-tagged 7-day TTL on confirm links (M-54); the live `robots.txt` advertised a stale localhost sitemap URL from a 24h CDN cache pinned by the route's own `s-maxage=86400` (M-49 → hourly, live-verified via cache-bust A/B); rate-limit keys took the attacker-set first `X-Forwarded-For` entry (M-50 → rightmost hop); the subscribe form threw `TypeError: null currentTarget` after `await` on every success (M-51, React 19); `/archive` + `/snippets` inherited the homepage canonical (M-52); the hero mouse-glow was dead code attached to a `pointer-events: none` overlay (M-53); CSP gained `base-uri`/`object-src`/`form-action` (M-55); plus a unique post-tag index (L-45), `updatePost` invariants (L-46), a CSV tab/CR guard (L-47), query guards (L-48), a scoped comments-page query (L-49), site-relative `rssUrl` acceptance (L-50), email sandbox-key handling (L-51), a typewriter tab-visibility resume (L-52), Tailwind literal cleanup (L-53), and operator-hygiene fixes (L-54/L-55). Full findings and evidence in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 7 Addendum"; tasks in `REMEDIATION_PLAN.md` §13.
+
+**Pass 8 (2026-09-04, tiered review + security audit + live E2E re-verification):** the fourth full `code-review-and-audit` deep pass (networked registry this time) re-verified every Pass 3–7 fix live (30/30 HTTP contract checks, browser E2E flows, zero console errors) and found **C-42** — the `pnpm check` release gate was broken: `pnpm audit --prod` reported 41 vulnerabilities (2 critical / 15 high) all routed through a dead runtime dependency, the `react-email` preview CLI in `packages/email` (which dragged vulnerable `next@15.1.2` + esbuild/glob/@babel-core into the prod graph), while the `pnpm-workspace.yaml` overrides meant to pin that subtree were silently inert under pnpm 9.15.4 (workspace-level `overrides` require pnpm ≥10). Fixed in R-95: `react-email` removed from runtime deps (regression-pinned by a manifest scan test), the inert-override comment corrected, and the one still-required pin (`prismjs ^1.30.0`) restored to the pnpm-9-compatible `package.json#pnpm.overrides` — audit is **0 vulnerabilities** again. Also fixed: **H-43**, the sign-in handler skipped scrypt work for unknown emails so response timing distinguished valid author emails (R-96: dummy verification against a pre-generated constant hash on both rejection branches, TDD-pinned); plus doc re-sync R-97 (`CLAUDE.md`/`AGENTS.md` now document the five-stage gate, `programmer-blog_SKILL.md` counts corrected to the 464-test baseline and the `Env` interface gains `DEV_AUTHOR_PASSWORD`). Full findings and evidence in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 8 Addendum"; tasks in `REMEDIATION_PLAN.md` §14.
 
 **Pass 6 (2026-09-04, tiered code review + security audit):** a full `code-review-and-audit` deep pass (static analysis → OWASP security scan → 12-category quality checklist → tests → expert review) plus a fresh live E2E verified every Pass 3–5 fix still holds, then found **C-38** — the production seed path (`bash start_server.sh` → `pnpm db:seed`) created the author account with the publicly-known `dev-password-12345` fallback (fixed in R-57: the seed now refuses to seed prod without `DEV_AUTHOR_PASSWORD`, and the start script generates a strong random one) — and **H-39**, a Server-Action argument (`ctx.ip`) that let callers spoof the rate-limit key (fixed in R-58: the IP is read from proxy headers only). Also fixed: unbounded rate-limit store growth (R-59), an open redirect on `/admin/login?next=` for signed-in authors (R-60), boot-time enforcement of missing production secrets (R-61), `SIGNED_TOKEN_SECRET` actually keying transaction tokens per the documented contract (R-62), two 5-layer golden-rule violations + a new layer-boundary scan test (R-63), double `<h1>` on snippet pages (R-64), http(s)-only social URLs (R-65), wildcard-safe search on the live `?q=` path (R-66), and several Low/info cleanups (R-67..R-69). And a third Critical, **C-40**: a force-added `.env.local` tracked real secrets in the public repo — untracked in R-71, with **mandatory operator rotation** of `BETTER_AUTH_SECRET`/`SIGNED_TOKEN_SECRET`/`DEV_AUTHOR_PASSWORD` (the committed session key enables admin-cookie forgery on the live site until rotated). The committed SSH key remains an explicit operator workflow (risk-accepted with rotation/deploy-key follow-ups). Full evidence in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 6 Addendum"; tasks in `REMEDIATION_PLAN.md` §12.
 
@@ -238,7 +240,7 @@ pnpm check         # = check-types && lint && test:coverage && audit --prod && b
 |---|---|
 | `pnpm check-types` | `0 errors` across all 5 packages |
 | `pnpm lint` | `0 errors` (0 warnings) |
-| `pnpm test` | `459 tests passing` across all packages |
+| `pnpm test` | `464 tests passing` across all packages |
 | `pnpm build` | Standalone build at `apps/web/.next/standalone/` (27 routes) |
 | `pnpm dev` → http://localhost:3000 | Landing page with dark theme + typewriter + marquee |
 
@@ -254,7 +256,7 @@ bash start_server.sh          # from repo root (or ./start_server.sh)
 1. **Env** — creates/validates `.env.local` (absolute `DATABASE_PATH=/…/apps/web/devlog.db`, `BETTER_AUTH_SECRET`/`SIGNED_TOKEN_SECRET` ≥32 via `openssl rand -hex 32`, `NEXT_PUBLIC_SITE_URL`/`BETTER_AUTH_URL` → prod) and syncs `apps/web/.env.local` so `next build` bakes the prod URL.
 2. **Deps** — `pnpm install --frozen-lockfile`.
 3. **DB** — `pnpm db:migrate` + `pnpm db:seed` (9 posts / 12 tags; fail-fast if `DATABASE_PATH` missing — R-38).
-4. **Gate** — `pnpm check-types` + `pnpm lint` + `pnpm test` (360 tests, must be green).
+4. **Gate** — `pnpm check-types` + `pnpm lint` + `pnpm test` (464 tests, must be green).
 5. **Build** — `pnpm build` (`standalone` + `postbuild` static copy) with prod env exported.
 6. **Start** — kills prior `:3000` (`fuser`/`lsof`/`pkill`), then `bash -c 'set -a; . .env.local; nohup node apps/web/.next/standalone/apps/web/server.js > server.log 2>&1 & echo $! > server.pid'` (uses `bash` `set -a; .` — `dash`/`sh` `source` → `source: not found`).
 7. **Health check** — `GET /archive` 200 (9 essays, tags), `GET /posts/<slug>` 200 single `<h1>` + `canonical https://…`, `GET /rss.xml` 9 `<item>`, `GET /sitemap.xml` 17 `<loc> https://…`, `GET /robots.txt` `Sitemap: https://…`, `GET /admin` 307, `canonical` prod.
@@ -367,10 +369,10 @@ Every code change follows **Red → Green → Refactor**:
 
 - ✅ `pnpm check-types` — 0 errors across all 5 packages
 - ✅ `pnpm lint` — 0 errors, 0 warnings
-- ✅ `pnpm test` — 459 tests passing across all packages (355 web / 41 db / 37 auth / 21 types / 5 email)
+- ✅ `pnpm test` — 464 tests passing across all packages (355 web / 41 db / 40 auth / 21 types / 7 email)
 - ✅ `pnpm test:coverage` — ~65% lines vs staged regression thresholds (80% target tracked as R-30)
 - ✅ `pnpm build` — 27 routes (16.3.4), `postbuild` copies `.next/static` + `public/` into `.next/standalone/` (R-33) — `proxy.ts` Edge, Web Crypto, no `node:crypto` warning
-- ✅ `pnpm audit --prod` — **0 vulnerabilities** (`pnpm.overrides` via `pnpm-workspace.yaml` + `package.json`; `pnpm` field warning accepted on 9.15.4)
+- ✅ `pnpm audit --prod` — **0 vulnerabilities** (re-verified after Pass 8 R-95 removed the dead `react-email` subtree; the one live pin is `prismjs ^1.30.0` via `package.json#pnpm.overrides` — note workspace-level `pnpm-workspace.yaml` overrides are inert on pnpm 9.15.4)
 
 ### Production deploy (standalone) — R-33 + Pass 4
 
@@ -464,7 +466,7 @@ Full troubleshooting in `skills/how-to-git-push-using-ssh-wrapper/SKILL.md`.
 | 5. Subscribe + email | ✅ Complete | Server Action, Zod schema, sliding-window rate limiter, Resend integration |
 | 6. Auth + admin | ✅ Complete | `proxy.ts` (was `middleware.ts`), login page, admin dashboard, post editor |
 | 7. Admin (subscribers + comments + settings) | ✅ Complete | CSV export, comment moderation, settings form, RSS/sitemap/robots |
-| 8. Validation + hardening | 🚧 In progress | Passes 5–7 (R-48..R-93) complete, incl. live E2E and a third full security audit; production checklist hardened — see the deploy steps above |
+| 8. Validation + hardening | 🚧 In progress | Passes 5–8 (R-48..R-97) complete, incl. live E2E and four full security audits; production checklist hardened — see the deploy steps above |
 
 **Overall progress:** ~90% of the MEP shipped. The remaining work is hardening, security notes, and E2E test coverage (Playwright, deferred).
 
@@ -489,7 +491,7 @@ Full troubleshooting in `skills/how-to-git-push-using-ssh-wrapper/SKILL.md`.
 | `NEXT_PUBLIC_SITE_URL` mismatch breaks RSS/OG tags | Default is `http://localhost:3000`; prod deploy didn't override | Set `NEXT_PUBLIC_SITE_URL=https://your-domain.com` in the deploy environment |
 | Article card hover shadow looks wrong in light theme | Tailwind's default `shadow-lg` was used instead of the mockup's `box-shadow` | Use the `.article-card` component class from `globals.css` (lines 410–487); the light-theme override is built in |
 | `drizzle-kit generate` → `Failed to find Response internal state key` | `drizzle-kit 0.27 + Node 24` native `fetch` clash | Upgrade to `drizzle-kit ^0.31` (now `0.31.10`) + use `--config ./drizzle.config.ts` |
-| `pnpm` warns `pnpm field no longer read` | `package.json pnpm.overrides` deprecated since pnpm 10 | Move `overrides` to `pnpm-workspace.yaml` (kept `pnpm` field for `9.15.4` compat; audit stays `0`) |
+| `pnpm audit --prod` flags vulnerabilities that `pnpm-workspace.yaml` overrides should have pinned | Workspace-level `overrides` are only read by pnpm ≥10 — they are **inert** on the pinned 9.15.4 (Pass 8, C-42) | Put the pin in `package.json#pnpm.overrides` (the 9.x location) and `pnpm install`; for vulnerable **transitive** subtrees, prefer removing the unused parent dependency at the source (that is how the `react-email` CLI findings were cleared in R-95) |
 | Build warns `middleware file convention deprecated` | Next 16.3.4 renamed `middleware.ts` → `proxy.ts`; build errors if both exist | Use only `apps/web/src/proxy.ts` (`export async function proxy`) |
 
 ## License

@@ -5,12 +5,12 @@ description: >
   App Router + React 19 + Tailwind v4 (CSS-first @theme) + Drizzle ORM (better-sqlite3) +
   homegrown HMAC auth (@devlog/auth; Better Auth removed per ADR-004 amendment, R-2) +
   Resend + Vitest monorepo. Distilled from the completed Phases 1–7 of the Master
-  Execution Plan (MEP) plus remediation Passes 1–6. Use this when extending, debugging,
+  Execution Plan (MEP) plus remediation Passes 1–8. Use this when extending, debugging,
   onboarding to, or replicating the /dev/log architecture.
-version: 1.0.1
+version: 1.1.0
 project: devlog
 last_updated: 2026-09-04
-project_state: 405 tests green (322 web + 33 db + 26 auth + 21 types + 3 email), 5 packages, Next 16.3.4 / drizzle-kit 0.31 / proxy.ts / Web Crypto, Phases 1–7 + remediation A-C + Passes 4–6 (R-37..R-70) complete
+project_state: 464 tests green (355 web + 41 db + 40 auth + 21 types + 7 email), 5 packages, Next 16.3.4 / drizzle-kit 0.31 / proxy.ts / Web Crypto, Phases 1–7 + remediation A-C + Passes 4–8 (R-37..R-97) complete
 tags:
   - documentation
   - knowledge-distillation
@@ -25,7 +25,7 @@ tags:
 
 # `/dev/log` — Programmer Blog Engineering Skill (SKILL.md)
 
-> **How to use this document:** This is the deep-dive codebase reference for `/dev/log`. Read §1–§3 before extending any feature. Read §9 + §10 when debugging. Read §11 before pushing. Read §19 + §20 when authoring or modifying design tokens / TypeScript types. All claims are verified against the actual codebase as of **2026-09-04** (Next 16.3.4 / drizzle-kit 0.31 / `proxy.ts` / Web Crypto `crypto.subtle` / `pnpm db:setup`, 405 tests, Pass 6 audit remediation R-57..R-70 complete).
+> **How to use this document:** This is the deep-dive codebase reference for `/dev/log`. Read §1–§3 before extending any feature. Read §9 + §10 when debugging. Read §11 before pushing. Read §19 + §20 when authoring or modifying design tokens / TypeScript types. All claims are verified against the actual codebase as of **2026-09-04** (Next 16.3.4 / drizzle-kit 0.31 / `proxy.ts` / Web Crypto `crypto.subtle` / `pnpm db:setup`, 464 tests, Pass 8 audit remediation R-95..R-97 complete).
 
 ---
 
@@ -152,9 +152,9 @@ Defined in [`apps/web/src/lib/env.ts`](./apps/web/src/lib/env.ts) via Zod. **Thr
 
 **Access pattern:** Never read `process.env.FOO` directly in feature/component code. Always go through `apps/web/src/lib/env.ts`. Public vars (`NEXT_PUBLIC_*`) are inlined by Next.js and safe to read in client components.
 
-### 2.3 Test Counts (2026-09-04, post-Pass-5 baseline)
+### 2.3 Test Counts (2026-09-04, post-Pass-8 baseline)
 
-- **405 tests** across 5 packages (`322 web` + `26 auth` + `21 types` + `33 db` + `3 email`) after Pass 6.
+- **464 tests** across 5 packages (`355 web` + `41 db` + `40 auth` + `21 types` + `7 email`) after Pass 8. Pass 8 added 5: the email dependency-manifest scan (R-95) and three signIn timing-equalization pins (R-96).
 - Pass 5 added 25 (the `'use server'` export scan, the revalidate contract scan, `getTagsInUse`/`getTagsForPosts` integration tests, archive tag rendering, `stripLeadingH1` units, unsubscribe copy tests). Pass 6 added 45: the layer-boundary scan, the server-action IP scan, the seed production-password guard, rate-limit eviction, `safeNext` open-redirect units + login-page pins, env boot-throw cases, token key-separation, snippet single-h1, schema scheme guards, search hardening integration tests.
 - All green. Updated on every commit via `turbo run test` (`pnpm check` = `check-types && lint && test:coverage && audit --prod && build`).
 
@@ -997,7 +997,7 @@ curl -s http://localhost:3000/posts/<slug> | grep canonical          # prod orig
 ```bash
 pnpm check-types   # 0 errors across 5 packages
 pnpm lint          # 0 errors (3 pre-existing warnings acceptable)
-pnpm test          # 405 tests passing (322 web + 33 db + 26 auth + 21 types + 3 email)
+pnpm test          # 464 tests passing (355 web + 41 db + 40 auth + 21 types + 7 email)
 pnpm build         # 34/34 pages → apps/web/.next/standalone/apps/web/server.js (proxy.ts, Web Crypto)
 
 # Or all at once (full gate):
@@ -2055,6 +2055,7 @@ export type Env = {
   GITHUB_STATS_FALLBACK_STARS: number;
   GITHUB_STATS_FALLBACK_FORKS: number;
   CRON_SECRET?: string;
+  DEV_AUTHOR_PASSWORD?: string; // R-57/R-92: prod seeds throw without it (>=16 chars)
   NODE_ENV: 'development' | 'test' | 'production';
 };
 

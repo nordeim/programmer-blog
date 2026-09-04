@@ -1264,3 +1264,33 @@ After P1–P5 are complete and all gates are green, the agent will:
 - Session revocation story (`tokenVersion` column or adopting the reserved `sessions` table).
 - `next/image` `remotePatterns` host allowlist (currently `https://**`).
 - Playwright E2E suite in-repo (still deferred per MEP Phase 8+).
+
+---
+
+## 14. Pass 8 (2026-09-04) — Release-gate dependency audit + auth hardening + doc re-sync (R-95..R-97)
+
+Trigger: operator-requested fourth tiered review + live E2E re-verification. Findings C-42/H-43/M-56/M-57/L-57 are detailed in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 8 Addendum". Every task below follows RED → GREEN → REFACTOR; the full gate (`pnpm check`) is the acceptance gate.
+
+### R-95 — C-42 + L-57: remove the dead `react-email` runtime dependency; fix the inert-override comment
+
+- **Why:** `pnpm audit --prod` reports 41 vulnerabilities (2 critical / 15 high) — all routed through `packages/email > react-email@3.0.7 > next@15.1.2` (+ esbuild 0.23, glob 10.3.4, @babel/core 7.24.5, prismjs, postcss, sharp). `react-email` (the preview CLI) is imported by nothing and executed by no script; the `pnpm-workspace.yaml` overrides that were supposed to pin this subtree are inert under pnpm 9.15.4. The `pnpm check` gate cannot pass.
+- **RED:** new `packages/email/src/deps-scan.test.ts` reads `packages/email/package.json` and asserts `react-email` is NOT in `dependencies` (and that the render libraries `@react-email/components` + `@react-email/render` ARE) — fails before the fix.
+- **GREEN:** `pnpm --filter @devlog/email remove react-email` (package manager only — no hand-editing the manifest), `pnpm install` to refresh the lockfile; correct the `pnpm-workspace.yaml` comment (workspace-level `overrides` require pnpm ≥10; under 9.15.4 they are inert — the 9.15-compatible place is `package.json#pnpm.overrides`).
+- **REFACTOR:** none required — removal is the refactor.
+- **Acceptance:** `pnpm audit --prod` → 0 vulnerabilities; `pnpm --filter @devlog/email test` green incl. the new pin; full `pnpm test` green (459 + 2 new assertions).
+
+### R-96 — H-43: signIn unknown-user branch must do comparable scrypt work
+
+- **Why:** unknown email returns before any scrypt work; known email + wrong password runs scrypt N=2^15 (~100ms). Response-time delta leaks whether an email is a valid author (OWASP authentication-failure enum).
+- **RED:** new `packages/auth/src/index.timing.test.ts` partially mocks `./password` (`importOriginal` + `vi.fn` wrapper) and asserts `verifyPassword` IS invoked for an unknown-email sign-in — fails before the fix.
+- **GREEN:** in `packages/auth/src/index.ts`, the `!user` branch first `await`s `verifyPassword(password, TIMING_EQUALIZER_HASH)` against a pre-generated constant hash in the repo's `scrypt:N:r:p:salt:hash` format (no runtime keygen; identical error surface + generic error afterwards).
+- **REFACTOR:** keep the dummy-hash comment explaining the OWASP rationale (prevents "why is this here" deletion later).
+- **Acceptance:** `pnpm --filter @devlog/auth test` green (37 + 2 new); no observable behavior change (still generic error, still `ok:false`).
+
+### R-97 — M-56 + M-57: documentation re-sync to the as-built gate and test baseline
+
+- **CLAUDE.md:** Build Commands table row for `pnpm check` → `check-types && lint && test:coverage && audit --prod && build` (five stages).
+- **AGENTS.md:** §Commands note "`pnpm check` runs all four" → "runs all five stages (types, lint, coverage, audit, build)".
+- **programmer-blog_SKILL.md:** front-matter `project_state` + header note + §2.3 + §11 counts 405 → **459 (355 web / 41 db / 37 auth / 21 types / 5 email)**; state line → Passes 4–8 (R-37..R-97) complete; §20.2 `Env` interface gains `DEV_AUTHOR_PASSWORD?: string`.
+- **README.md:** Audit Status gains the Pass 8 paragraph (C-42/H-43 summary + remediation pointer); audit posture line reverts to 0 after R-95.
+- **Acceptance:** every changed claim spot-checked against `package.json` / live test run (evidence in the Pass 8 Addendum verification ledger).

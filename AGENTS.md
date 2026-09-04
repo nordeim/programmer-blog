@@ -31,7 +31,7 @@ Compact instructions for AI coding agents working in `/dev/log`. Read before edi
 | Single-package test | `pnpm --filter @devlog/web test` |
 | Fresh-clone prod start (migrate+seed+gate+build+standalone) | `bash start_server.sh` → http://localhost:3000 (canonical https://programmer-blog.jesspete.shop), `server.log`/`server.pid` |
 
-**Required order when verifying a change:** `pnpm check-types` → `pnpm lint` → `pnpm test` → `pnpm build`. `pnpm check` runs all four.
+**Required order when verifying a change:** `pnpm check-types` → `pnpm lint` → `pnpm test` → `pnpm build`. `pnpm check` runs all five gate stages (types, lint, coverage, `audit --prod`, build) — every one is release-blocking.
 
 > `start_server.sh` runs `check-types+lint+test` before `build`, kills prior `:3000`, sources `.env.local` via `bash set -a; .` (not `source` — `dash` trap), syncs `apps/web/.env.local`, and is re-runnable/idempotent.
 
