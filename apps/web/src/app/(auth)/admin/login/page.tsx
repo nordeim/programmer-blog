@@ -61,14 +61,21 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           sign <span style={{ fontStyle: 'italic', fontWeight: 400 }}>in</span>
         </h1>
         <LoginForm nextHref={next} />
-        <p
-          className="font-mono text-xs mt-12"
-          style={{ color: 'var(--muted)' }}
-        >
-          $ dev credentials — <code>author@devlog.example</code> /{' '}
-          <code>dev-password-12345</code> (set by the seed script; override
-          with the <code>DEV_AUTHOR_PASSWORD</code> env var).
-        </p>
+        {/*
+         * R-37 (C-35): the seeded dev credentials must NEVER render in a
+         * production deployment — the hint is a dev convenience only.
+         * Production silence mirrors the R-5 secret policy.
+         */}
+        {process.env.NODE_ENV === 'development' && (
+          <p
+            className="font-mono text-xs mt-12"
+            style={{ color: 'var(--muted)' }}
+          >
+            $ dev credentials — <code>author@devlog.example</code> /{' '}
+            <code>dev-password-12345</code> (set by the seed script; override
+            with the <code>DEV_AUTHOR_PASSWORD</code> env var).
+          </p>
+        )}
       </div>
     </section>
   );

@@ -81,3 +81,30 @@ describe('admin login page — R-31 / C-31', () => {
     expect(mockRedirect).toHaveBeenCalledWith('/admin');
   });
 });
+
+describe('admin login page — R-37 / C-35 (dev-credentials hint gating)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetSession.mockResolvedValue(null);
+  });
+
+  it('does NOT render the dev-credentials hint in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const ui = await LoginPage({ searchParams: Promise.resolve({}) });
+    const { container } = render(ui);
+
+    expect(screen.getByTestId('login-form-stub')).toBeTruthy();
+    expect(container.textContent).not.toContain('dev credentials');
+    expect(container.textContent).not.toContain('dev-password-12345');
+    vi.unstubAllEnvs();
+  });
+
+  it('renders the dev-credentials hint in development only', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    const ui = await LoginPage({ searchParams: Promise.resolve({}) });
+    const { container } = render(ui);
+
+    expect(container.textContent).toContain('dev credentials');
+    vi.unstubAllEnvs();
+  });
+});
