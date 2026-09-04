@@ -39,6 +39,22 @@ export function useTypewriter(words: string[]): string {
   const [text, setText] = useState('');
   const [index, setIndex] = useState(0);
   const [deleting, setDeleting] = useState(false);
+  // R-89 (Pass 7, L-52): bumped by the visibilitychange listener below so
+  // the typing effect re-runs when the tab becomes visible again. While
+  // hidden, the effect's empty 200ms retry never advanced any state, so
+  // the machine slept forever after the first tab-hide.
+  const [wakeTick, setWakeTick] = useState(0);
+
+  // Wake on visibility change. setState inside an EVENT handler (not in
+  // the effect body) — allowed under react-hooks v7's set-state-in-effect
+  // rule, which targets synchronous effect-body cascades.
+  useEffect(() => {
+    function onVisibilityChange(): void {
+      if (!document.hidden) setWakeTick((t) => t + 1);
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, []);
 
   // Reduced motion: short-circuit. The main effect below returns early when
   // reduced motion is on, so the typing machinery is dormant.
@@ -88,7 +104,7 @@ export function useTypewriter(words: string[]): string {
       }, DELETE_SPEED_MS);
       return () => clearTimeout(t);
     }
-  }, [text, deleting, index, words]);
+  }, [text, deleting, index, words, wakeTick]);
 
   // If reduced-motion froze a greeting, return that; else return the
   // typed/deleted text. This is the value the consumer renders.
