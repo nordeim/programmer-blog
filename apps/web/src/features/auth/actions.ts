@@ -21,6 +21,7 @@ import { signIn as authSignIn, signOut as authSignOut } from '@devlog/auth';
 import { cookies, headers } from 'next/headers';
 
 import { rateLimit } from '@/lib/rate-limit';
+import { getClientIpFromHeaders } from '@/lib/request-ip';
 
 const ALLOWED_NEXT_PREFIX = '/admin';
 const LOGIN_RATE_LIMIT_PER_10_MIN = 5;
@@ -31,19 +32,6 @@ function safeNext(next: string | undefined): string {
     return ALLOWED_NEXT_PREFIX;
   }
   return next;
-}
-
-function getClientIp(headersList: Awaited<ReturnType<typeof headers>>): string {
-  // x-forwarded-for is the standard header from reverse proxies (Vercel,
-  // nginx, etc.). It may contain a comma-separated list; the first
-  // entry is the originating client.
-  const xff = headersList.get('x-forwarded-for');
-  if (xff) {
-    const first = xff.split(',')[0]?.trim();
-    if (first) return first;
-  }
-  // Fallback to x-real-ip (some proxies set this) or 'unknown'.
-  return headersList.get('x-real-ip')?.trim() || 'unknown';
 }
 
 export interface SignInSuccess {
@@ -67,7 +55,7 @@ export async function signInAction(input: {
 
   // R-8: rate limit by IP before any DB lookup to prevent brute-force.
   const headersList = await headers();
-  const ip = getClientIp(headersList);
+  const ip = getClientIpFromHeaders(headersList);
   const allowed = await rateLimit(
     `login:${ip}`,
     LOGIN_RATE_LIMIT_PER_10_MIN,

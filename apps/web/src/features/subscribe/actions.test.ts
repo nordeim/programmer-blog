@@ -29,6 +29,17 @@ vi.mock('@devlog/email', () => ({
   sendEmail: (...args: unknown[]) => sendEmailMock(...args),
 }));
 
+// R-40: the action reads the client IP from proxy headers via next/headers.
+vi.mock('next/headers', () => ({
+  headers: () =>
+    Promise.resolve({
+      get: (name: string) => {
+        if (name.toLowerCase() === 'x-forwarded-for') return '198.51.100.10';
+        return null;
+      },
+    }),
+}));
+
 vi.mock('@/lib/rate-limit', () => ({
   rateLimit: (key: string, max: number, windowSeconds: number) =>
     rateLimitMock(key, max, windowSeconds),

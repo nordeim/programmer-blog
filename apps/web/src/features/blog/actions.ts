@@ -19,10 +19,12 @@
 import 'server-only';
 
 import { and, eq } from 'drizzle-orm';
+import { headers } from 'next/headers';
 import { z } from 'zod';
 
 import { db, schema } from '@/lib/db';
 import { rateLimit } from '@/lib/rate-limit';
+import { getClientIpFromHeaders } from '@/lib/request-ip';
 
 const COMMENT_RATE_LIMIT_PER_HOUR = 10;
 const MAX_BODY_LENGTH = 2000;
@@ -75,8 +77,18 @@ export async function createComment(
   }
   const { postId, body, parentId, authorName, authorEmail } = parsed.data;
 
-  // Rate limit per IP. Falls back to a deterministic per-post key when IP missing.
-  const rateKey = `comment:${ctx.ip ?? postId}`;
+  // R-40 (H-35): rate limit by the REAL client IP, read server-side from
+  // proxy headers. The previous key (`comment:${postId}` when no IP was
+  // passed by the caller) put every visitor of a post into ONE shared
+  // 10/hour bucket — the 11th legitimate commenter was locked out for
+  // everyone. Falls back to postId only when no proxy headers exist
+  // (e.g. tests, or a direct connection with no proxy in front).
+  let clientIp = ctx.ip;
+  if (!clientIp) {
+    const headersList = await headers();
+    clientIp = getClientIpFromHeaders(headersList);
+  }
+  const rateKey = clientIp === 'unknown' ? `comment:unknown-${postId}` : `comment:${clientIp}`;
   const allowed = await rateLimit(rateKey, COMMENT_RATE_LIMIT_PER_HOUR, 3600);
   if (!allowed) {
     return { ok: false, error: 'Too many comments. Try again later.' };

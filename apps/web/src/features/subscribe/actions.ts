@@ -24,13 +24,14 @@ import 'server-only';
 
 import { sendEmail } from '@devlog/email';
 import { eq } from 'drizzle-orm';
-
+import { headers } from 'next/headers';
 
 import { signToken } from '@/lib/auth';
 import { db, schema } from '@/lib/db';
 import { env } from '@/lib/env';
 import { maskEmail } from '@/lib/log';
 import { rateLimit } from '@/lib/rate-limit';
+import { getClientIpFromHeaders } from '@/lib/request-ip';
 
 import { subscribeInputSchema, type SubscribeResult } from './schema';
 
@@ -54,8 +55,16 @@ export async function subscribeToNewsletter(
   }
   const email = parsed.data.email.toLowerCase();
 
-  // Rate limit by IP (or by email if IP missing).
-  const key = ctx.ip ?? email;
+  // Rate limit by the REAL client IP (R-40, H-35), read server-side from
+  // proxy headers; falls back to the email only when no proxy headers
+  // exist. Previously this always keyed on email despite being
+  // documented as per-IP.
+  let clientIp = ctx.ip;
+  if (!clientIp) {
+    const headersList = await headers();
+    clientIp = getClientIpFromHeaders(headersList);
+  }
+  const key = clientIp === 'unknown' ? email : clientIp;
   const allowed = await rateLimit(`subscribe:${key}`, SUBSCRIBE_RATE_LIMIT_PER_HOUR, 3600);
   if (!allowed) {
     return {

@@ -14,9 +14,10 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const { mockDb, mockRateLimit, insertSpy, selectPostSpy } = vi.hoisted(() => {
+const { mockDb, mockRateLimit, insertSpy, selectPostSpy, headerIp } = vi.hoisted(() => {
   const insertSpy = vi.fn();
   const selectPostSpy = vi.fn();
+  const headerIp = { value: '203.0.113.7' };
   const mockInsert = vi.fn(() => ({
     values: vi.fn(() => ({
       returning: vi.fn(() => ({
@@ -41,7 +42,7 @@ const { mockDb, mockRateLimit, insertSpy, selectPostSpy } = vi.hoisted(() => {
       }),
     }),
   };
-  return { mockDb, mockRateLimit, insertSpy, selectPostSpy };
+  return { mockDb, mockRateLimit, insertSpy, selectPostSpy, headerIp };
 });
 
 vi.mock('@/lib/db', () => ({
@@ -59,6 +60,17 @@ vi.mock('@/lib/db', () => ({
 vi.mock('@/lib/rate-limit', () => ({
   rateLimit: (...args: unknown[]) => mockRateLimit(...(args as never[])),
   __resetRateLimit: vi.fn(),
+}));
+
+// R-40: the action reads the client IP from proxy headers via next/headers.
+vi.mock('next/headers', () => ({
+  headers: () =>
+    Promise.resolve({
+      get: (name: string) => {
+        if (name.toLowerCase() === 'x-forwarded-for') return headerIp.value;
+        return null;
+      },
+    }),
 }));
 
 import { createComment, createCommentInputSchema } from './actions';
@@ -92,6 +104,7 @@ describe('createComment', () => {
     insertSpy.mockReset();
     selectPostSpy.mockReset();
     mockRateLimit.mockResolvedValue(true);
+    headerIp.value = '203.0.113.7';
   });
 
   it('returns ok:true + commentId on the happy path', async () => {
@@ -141,6 +154,30 @@ describe('createComment', () => {
     if (!result.ok) {
       expect(result.error).toMatch(/too many/i);
     }
+  });
+
+  // R-40 (H-35): the limiter must key on the REAL client IP read
+  // server-side from proxy headers — never on postId (which puts every
+  // visitor of a post into one shared 10/hour bucket).
+  it('rate-limits by the client IP derived from proxy headers (R-40)', async () => {
+    selectPostSpy.mockReturnValue({ id: 'p1', status: 'published' });
+    await createComment({ postId: 'p1', body: 'A real comment here.' });
+    expect(mockRateLimit).toHaveBeenCalledWith(
+      'comment:203.0.113.7',
+      expect.any(Number),
+      expect.any(Number),
+    );
+  });
+
+  it('falls back to the postId key only when no proxy headers exist (R-40)', async () => {
+    headerIp.value = '';
+    selectPostSpy.mockReturnValue({ id: 'p1', status: 'published' });
+    await createComment({ postId: 'p1', body: 'A real comment here.' });
+    expect(mockRateLimit).toHaveBeenCalledWith(
+      'comment:unknown-p1',
+      expect.any(Number),
+      expect.any(Number),
+    );
   });
 
   it('accepts a slug for postId and resolves it to a post id via the second lookup', async () => {
