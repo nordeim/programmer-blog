@@ -65,3 +65,4 @@ skills/
 
 # R-35: build-manifest cruft from dependency bumps (skills/ is read-only and keeps its own .bak)
 *.bak
+.audit-report.md
