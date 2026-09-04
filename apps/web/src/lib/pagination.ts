@@ -48,8 +48,11 @@ export function paginate(input: PaginationInput): PaginationResult {
 
   // Build the visible page list with ellipsis-aware neighbors. We keep the
   // first and last page always visible, and `siblings` pages on each side
-  // of the current page. When the window grows past `maxVisible`, we drop
-  // interior pages (the ellipsis UI is the caller's concern).
+  // of the current page. R-69 (audit L-44): note the window is NOT hard-
+  // trimmed to `maxVisible` — with the pinned defaults (siblings 1,
+  // maxVisible 7) it never exceeds 7 entries, but a custom `siblings`
+  // larger than `maxVisible/2 - 1` produces a wider window. Capping the
+  // visible page count is the caller's concern.
   const pages: number[] = [];
   if (totalPages <= maxVisible) {
     for (let i = 1; i <= totalPages; i += 1) pages.push(i);
