@@ -12,6 +12,62 @@
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
+describe('env — R-61 missing production secrets throw at boot (M-45)', () => {
+  const ORIGINALS = ['BETTER_AUTH_SECRET', 'SIGNED_TOKEN_SECRET', 'NEXT_PUBLIC_SITE_URL'] as const;
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    vi.resetModules();
+    for (const k of ORIGINALS) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+
+  afterEach(() => {
+    for (const k of ORIGINALS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+    vi.unstubAllEnvs();
+  });
+
+  it('throws at boot in production when BETTER_AUTH_SECRET is absent', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://programmer-blog.example';
+
+    await expect(import('./env')).rejects.toThrow(/BETTER_AUTH_SECRET/);
+  });
+
+  it('throws at boot in production when SIGNED_TOKEN_SECRET is absent', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://programmer-blog.example';
+    process.env.BETTER_AUTH_SECRET = 'x'.repeat(32);
+
+    await expect(import('./env')).rejects.toThrow(/SIGNED_TOKEN_SECRET/);
+  });
+
+  it('boots cleanly in production with both secrets present', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://programmer-blog.example';
+    process.env.BETTER_AUTH_SECRET = 'x'.repeat(32);
+    process.env.SIGNED_TOKEN_SECRET = 'y'.repeat(32);
+
+    const mod = await import('./env');
+    expect(mod.env.BETTER_AUTH_SECRET).toHaveLength(32);
+  });
+
+  it('still boots without secrets in development (fallback + warning)', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const mod = await import('./env');
+    expect(mod.env).toBeTruthy();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+});
+
 describe('env — R-41 production localhost-URL warning (H-36)', () => {
   const ORIGINAL_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL;
   let warnSpy: ReturnType<typeof vi.spyOn>;
@@ -19,6 +75,11 @@ describe('env — R-41 production localhost-URL warning (H-36)', () => {
   beforeEach(() => {
     vi.resetModules();
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // R-61: production boot now throws on absent secrets. These tests
+    // exercise the site-URL warning specifically, so supply the secrets.
+    vi.stubEnv('NODE_ENV', 'production');
+    process.env.BETTER_AUTH_SECRET = 'x'.repeat(32);
+    process.env.SIGNED_TOKEN_SECRET = 'y'.repeat(32);
   });
 
   afterEach(() => {

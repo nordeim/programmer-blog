@@ -72,6 +72,30 @@ function warnIfLocalhostSiteUrlInProduction(env: Env): void {
 function loadEnv(): Env {
   const parsed = EnvSchema.safeParse(process.env);
   if (parsed.success) {
+    const absentCritical = [...SECURITY_CRITICAL_KEYS].filter(
+      (k) => !parsed.data[k as keyof Env],
+    );
+    // R-61 (audit M-45): the secrets are `.optional()` in the schema, so
+    // ABSENT values pass Zod — only present-but-short values fail. The
+    // docs (AGENTS.md, README) promise a boot throw in production, but
+    // pre-R-61 the fatal error surfaced at the first getSecret() call,
+    // i.e. the first /admin/* request 500-ed on a "healthy" boot.
+    if (process.env.NODE_ENV === 'production' && absentCritical.length > 0) {
+      throw new Error(
+        `Missing required environment variables in production:\n` +
+          absentCritical.map((k) => `  - ${k}: must be set to a 32+ char secret`).join('\n'),
+      );
+    }
+    // Dev: the header contract — "log a clear warning and fall back to
+    // dev-only defaults" — only fired when parse FAILED, which absence
+    // never did. Warn explicitly so a dev boot without secrets is loud.
+    if (process.env.NODE_ENV !== 'production' && absentCritical.length > 0) {
+      console.warn(
+        `[env] Missing security-critical env vars in dev:\n` +
+          absentCritical.map((k) => `  - ${k}`).join('\n') +
+          `\n  Using dev-only fallback secrets. Set these in .env.local for production-equivalent dev.`,
+      );
+    }
     warnIfLocalhostSiteUrlInProduction(parsed.data);
     return parsed.data;
   }
