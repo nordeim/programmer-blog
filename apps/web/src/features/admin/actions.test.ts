@@ -4,6 +4,7 @@
  * Tests the admin server actions: createPost (happy + auth + invalid),
  * moderateComment (auth), updateSiteSettings (auth + invalid).
  */
+import { postInputSchema } from '@devlog/types';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const { cookiesSpy, requireAuthorSpy, insertSpy, selectSpy, updateSpy, deleteSpy } =
@@ -93,7 +94,6 @@ import {
   updatePost,
   updateSiteSettings,
 } from './actions';
-import { postInputSchema } from '@devlog/types';
 import { siteSettingsInputSchema } from './schemas';
 
 describe('postInputSchema', () => {

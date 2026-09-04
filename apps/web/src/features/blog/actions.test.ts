@@ -12,6 +12,7 @@
  * with no real SQLite. Spies are declared via `vi.hoisted` so they are
  * available inside the hoisted `vi.mock` factories.
  */
+import { createCommentInputSchema } from '@devlog/types';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const { mockDb, mockRateLimit, insertSpy, selectPostSpy, headerIp } = vi.hoisted(() => {
@@ -74,7 +75,6 @@ vi.mock('next/headers', () => ({
 }));
 
 import { createComment } from './actions';
-import { createCommentInputSchema } from '@devlog/types';
 
 describe('createCommentInputSchema', () => {
   it('requires postId and body', () => {
