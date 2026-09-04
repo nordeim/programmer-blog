@@ -4,8 +4,10 @@
  * Server component. Fetches pending comments, joins with posts for
  * the moderation queue.
  */
+import { getPostsByIds } from '@devlog/db';
 import { eq } from 'drizzle-orm';
 import { cookies } from 'next/headers';
+
 
 import { CommentModeration } from '@/features/admin/comment-moderation';
 import { SESSION_COOKIE, isAuthorRequiredError, requireAuthor } from '@/lib/auth';
@@ -34,11 +36,10 @@ export default async function AdminCommentsPage() {
     .where(eq(schema.comments.status, 'pending'))
     .all();
 
-  // Fetch post titles in one pass.
-  const postIds = new Set(pending.map((c) => c.postId));
-  const posts = postIds.size > 0
-    ? db.select().from(schema.posts).all().filter((p) => postIds.has(p.id))
-    : [];
+  // Fetch post titles in one pass (R-86: scoped inArray query, not a
+  // full-table scan followed by client-side filtering).
+  const postIds = [...new Set(pending.map((c) => c.postId))];
+  const posts = await getPostsByIds(postIds);
   const postById = new Map(posts.map((p) => [p.id, p]));
 
   const items = pending.map((c) => {

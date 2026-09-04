@@ -33,6 +33,7 @@ import {
   getAdjacentPosts,
   getArchiveCount,
   getArchivePosts,
+  getPostsByIds,
   getCommentStats,
   getConfirmedSubscriberCount,
   getPostStats,
@@ -94,6 +95,17 @@ beforeAll(() => {
 afterAll(() => {
   // Close the underlying better-sqlite3 handle via a fresh query proxy pass.
   // (The singleton stays for the process lifetime; vitest exits anyway.)
+});
+
+describe('getPostsByIds — R-86 (Pass 7, L-49)', () => {
+  it('returns only the requested posts, keyed lookups intact', async () => {
+    const rows = await getPostsByIds(['pa', 'pc']);
+    expect(rows.map((r) => r.slug).sort()).toEqual(['post-a', 'post-c']);
+  });
+
+  it('returns [] for an empty id list (no unbounded query)', async () => {
+    expect(await getPostsByIds([])).toEqual([]);
+  });
 });
 
 describe('posts_to_tags unique constraint — R-82 (Pass 7, L-45)', () => {

@@ -246,10 +246,8 @@ describe('confirmUnsubscribe — R-74 (Pass 7, H-42)', () => {
   });
 
   it('unsubscribes a confirmed subscriber via the action', async () => {
-    verifyTokenMock.mockImplementation(async (token: string, id: string, purpose: string) => {
-      void token;
-      void id;
-      return purpose === 'manage';
+    verifyTokenMock.mockImplementation(async (...args: unknown[]) => {
+      return args[2] === 'manage';
     });
     selectAllMock.mockReturnValue([{ id: 'sub-9', email: 'r@t.dev', status: 'confirmed' }]);
 

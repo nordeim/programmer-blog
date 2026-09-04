@@ -312,6 +312,20 @@ export async function getTagsForPosts(postIds: string[]) {
   return map;
 }
 
+/**
+ * R-86 (Pass 7, L-49): fetch posts by id for keyed lookups in list views
+ * (the admin comments page previously loaded the ENTIRE posts table and
+ * filtered client-side).
+ */
+export async function getPostsByIds(postIds: string[]) {
+  if (postIds.length === 0) return [];
+  return db
+    .select()
+    .from(posts)
+    .where(inArray(posts.id, postIds))
+    .all();
+}
+
 // ── Site settings ───────────────────────────────────────────────────────────
 export async function getSiteSettings() {
   return db.select().from(siteSettings).where(eq(siteSettings.id, 1)).limit(1).get();

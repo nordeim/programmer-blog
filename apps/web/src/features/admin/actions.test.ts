@@ -284,7 +284,7 @@ describe('updatePost / deletePost / moderateComment / updateSiteSettings', () =>
     const r = await updatePost('p1', { slug: 'taken-slug' });
 
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/slug/i);
+    if (!r.ok) expect(r.error).toMatch(/slug/i);
   });
 
   it('updatePost allows re-saving the same slug for the same post (R-83)', async () => {
