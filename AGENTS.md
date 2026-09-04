@@ -9,6 +9,7 @@ Compact instructions for AI coding agents working in `/dev/log`. Read before edi
 - **TDD is mandatory.** Write the failing test first. Tests co-located: `Foo.tsx` ↔ `Foo.test.tsx`.
 - **The full quality gate is `pnpm check`** (= `check-types && lint && test:coverage && audit --prod && build`). All must pass before push.
 - **`landing_page_mockup.html` is the source of truth** for the landing page. `apps/web/src/app/globals.css` + `packages/config/tailwind/base.css` are 1:1 ports. Do not modify CSS without updating the mockup.
+- **Fresh-clone prod start is `bash start_server.sh`** (see Commands) — handles env + DB + gate + build + standalone.
 
 ## Commands
 
@@ -28,8 +29,11 @@ Compact instructions for AI coding agents working in `/dev/log`. Read before edi
 | Init DB from scratch | `pnpm db:setup` (= `db:generate && db:migrate && db:seed`) |
 | Drizzle Studio | `pnpm db:studio` → http://localhost:4983 |
 | Single-package test | `pnpm --filter @devlog/web test` |
+| Fresh-clone prod start (migrate+seed+gate+build+standalone) | `bash start_server.sh` → http://localhost:3000 (canonical https://programmer-blog.jesspete.shop), `server.log`/`server.pid` |
 
 **Required order when verifying a change:** `pnpm check-types` → `pnpm lint` → `pnpm test` → `pnpm build`. `pnpm check` runs all four.
+
+> `start_server.sh` runs `check-types+lint+test` before `build`, kills prior `:3000`, sources `.env.local` via `bash set -a; .` (not `source` — `dash` trap), syncs `apps/web/.env.local`, and is re-runnable/idempotent.
 
 ## Monorepo Layout
 

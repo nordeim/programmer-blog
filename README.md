@@ -22,6 +22,7 @@ The architecture enforces a strict 5-layer golden rule, TDD (Red→Green→Refac
 - [Architecture](#architecture)
 - [Repository Layout](#repository-layout)
 - [Quick Start](#quick-start)
+- [Production Start Script (Fresh Clone)](#production-start-script-fresh-clone)
 - [Environment Variables](#environment-variables)
 - [Routes Implemented](#routes-implemented)
 - [Testing](#testing)
@@ -225,6 +226,8 @@ pnpm check         # = check-types && lint && test:coverage && audit --prod && b
 # Production start (standalone): pnpm start → node apps/web/.next/standalone/apps/web/server.js
 ```
 
+> **One-command alternative (fresh clone → prod):** `bash start_server.sh` — handles `.env.local` (absolute `DATABASE_PATH`, ≥32 secrets, prod URL), `pnpm install`, `db:migrate+seed`, gate+build, standalone start with correct `bash set -a; .` sourcing, health check. See [Production Start Script (Fresh Clone)](#production-start-script-fresh-clone).
+
 ### Verify Setup
 
 | Step | Expected output |
@@ -234,6 +237,28 @@ pnpm check         # = check-types && lint && test:coverage && audit --prod && b
 | `pnpm test` | `360 tests passing` across all packages |
 | `pnpm build` | Standalone build at `apps/web/.next/standalone/` |
 | `pnpm dev` → http://localhost:3000 | Landing page with dark theme + typewriter + marquee |
+
+## Production Start Script (Fresh Clone)
+
+One idempotent command for a freshly `git clone`d repo (no `node_modules`, no `devlog.db`, no `.env.local`) that brings the standalone server up on `https://programmer-blog.jesspete.shop`.
+
+```bash
+bash start_server.sh          # from repo root (or ./start_server.sh)
+```
+
+**What it does (in order):**
+1. **Env** — creates/validates `.env.local` (absolute `DATABASE_PATH=/…/apps/web/devlog.db`, `BETTER_AUTH_SECRET`/`SIGNED_TOKEN_SECRET` ≥32 via `openssl rand -hex 32`, `NEXT_PUBLIC_SITE_URL`/`BETTER_AUTH_URL` → prod) and syncs `apps/web/.env.local` so `next build` bakes the prod URL.
+2. **Deps** — `pnpm install --frozen-lockfile`.
+3. **DB** — `pnpm db:migrate` + `pnpm db:seed` (9 posts / 12 tags; fail-fast if `DATABASE_PATH` missing — R-38).
+4. **Gate** — `pnpm check-types` + `pnpm lint` + `pnpm test` (360 tests, must be green).
+5. **Build** — `pnpm build` (`standalone` + `postbuild` static copy) with prod env exported.
+6. **Start** — kills prior `:3000` (`fuser`/`lsof`/`pkill`), then `bash -c 'set -a; . .env.local; nohup node apps/web/.next/standalone/apps/web/server.js > server.log 2>&1 & echo $! > server.pid'` (uses `bash` `set -a; .` — `dash`/`sh` `source` → `source: not found`).
+7. **Health check** — `GET /archive` 200 (9 essays, tags), `GET /posts/<slug>` 200 single `<h1>` + `canonical https://…`, `GET /rss.xml` 9 `<item>`, `GET /sitemap.xml` 17 `<loc> https://…`, `GET /robots.txt` `Sitemap: https://…`, `GET /admin` 307, `canonical` prod.
+
+**Logs / PID / Stop:**
+- `server.log` (also `*.log` gitignored) — `tail -f server.log`
+- `server.pid` — `kill $(cat server.pid)` or `fuser -k 3000/tcp`
+- Re-runnable/idempotent — safe to run again; also handles existing `.env.local`/DB/`node_modules`.
 
 ## Environment Variables
 
@@ -345,7 +370,7 @@ Every code change follows **Red → Green → Refactor**:
 
 ### Production deploy (standalone) — R-33 + Pass 4
 
-Next.js `output: 'standalone'` bakes the server bundle into `.next/standalone/` but leaves the client assets (`.next/static`) and `public/` **out** of it — copying them in is the operator's deploy step. The repo automates it: `pnpm build` now triggers `postbuild` (`src/scripts/copy-standalone-assets.ts`), which mirrors `.next/static → .next/standalone/apps/web/.next/static` and `public/ → .next/standalone/apps/web/public` so `pnpm build && pnpm start` always serves a complete, styled app. Skipping this step is what left the production landing page unstyled (all `/_next/static/*` 404s — audit C-34).
+Next.js `output: 'standalone'` bakes the server bundle into `.next/standalone/` but leaves the client assets (`.next/static`) and `public/` **out** of it — copying them in is the operator's deploy step. The repo automates it: `pnpm build` now triggers `postbuild` (`src/scripts/copy-standalone-assets.ts`), which mirrors `.next/static → .next/standalone/apps/web/.next/static` and `public/ → .next/standalone/apps/web/public` so `pnpm build && pnpm start` always serves a complete, styled app. Skipping this step is what left the production landing page unstyled (all `/_next/static/*` 404s — audit C-34). Or run `bash start_server.sh` for the full fresh-clone flow (env + DB + gate + build + standalone) — see [Production Start Script (Fresh Clone)](#production-start-script-fresh-clone).
 
 ### Production deployment checklist — Pass 4 (R-47)
 
@@ -452,6 +477,7 @@ Full troubleshooting in `skills/how-to-git-push-using-ssh-wrapper/SKILL.md`.
 | Any form submit (comment, admin CRUD) → 500 with `A "use server" file can only export async functions` | A `'use server'` file exports a Zod schema/constant (Next.js 16 forbids non-async exports); module evaluation throws and takes every action in the file down (audit C-37) | Keep schemas in plain modules (`@devlog/types`, `features/{feature}/schemas.ts`); `use-server-exports-scan.test.ts` blocks regressions (R-48) |
 | Post pages / login page canonical + OG tags advertise the build machine's URL | Prerendered HTML baked the build-time `NEXT_PUBLIC_SITE_URL` (audit H-37) | Build with the production value set; `revalidate = 3600` (R-49) self-heals within an hour of deploy |
 | `pnpm start` → `next start does not work with output: standalone` | `next.config.ts` `output:'standalone'` but `next start` ignores standalone bundle | Use `pnpm start` → `node apps/web/.next/standalone/apps/web/server.js` (`pnpm --filter @devlog/web start:next` for `next start`) |
+| `canonical`/`og:url` still `http://localhost:3000` after `pnpm build` + `node …/server.js` | Standalone server started without sourcing `.env.local` (`sh` `source: not found` — `dash` has no `source`) | Start with `bash -c 'set -a; . .env.local; node …/server.js'` or `bash start_server.sh` (which does this + health check) |
 | Build fails with `better-sqlite3` error in `proxy.ts` | `proxy.ts` imported `@devlog/auth` (root) which pulls `better-sqlite3` into the Edge bundle | Import `@devlog/auth/tokens` instead — it's pure Web Crypto `crypto.subtle` (`async`, no Node deps) |
 | `tsc` fails with `enum declarations are not allowed` | `erasableSyntaxOnly: true` is set in `tsconfig.base.json` | Use `as const` object + union type: `const Role = { Author: 'author', Subscriber: 'subscriber' } as const; type Role = typeof Role[keyof typeof Role];` |
 | Vitest mock factory throws `Cannot access X before initialization` | `vi.mock()` is hoisted above imports; outer-scope vars aren't available in the factory | Inline everything inside the factory. Use `vi.hoisted()` if you must share state |
