@@ -28,8 +28,9 @@ import 'server-only';
 import { sendEmail } from '@devlog/email';
 import { eq } from 'drizzle-orm';
 import { headers } from 'next/headers';
+import { z } from 'zod';
 
-import { createTransactionToken, signToken } from '@/lib/auth';
+import { createTransactionToken, signToken, verifyTransactionToken } from '@/lib/auth';
 import { db, schema } from '@/lib/db';
 import { env } from '@/lib/env';
 import { maskEmail } from '@/lib/log';
@@ -172,5 +173,65 @@ export async function subscribeToNewsletter(input: unknown): Promise<SubscribeRe
   } catch (e) {
     console.error('[subscribe] DB error', maskEmail(email), e);
     return { ok: false, error: 'Server error. Please try again later.' };
+  }
+}
+
+/**
+ * R-74 (Pass 7, H-42): the destructive half of the unsubscribe flow.
+ *
+ * The /unsubscribe page previously wrote the DB during the GET render —
+ * email-client prefetch silently unsubscribed users who never clicked.
+ * The GET now renders a confirmation form only; this Server Action
+ * (POST via the form) performs the write. Token-gated with the
+ * `manage` purpose (v2 + legacy v1 links both accepted, see R-80) and
+ * idempotent: confirming twice, or confirming after prefetch, stays
+ * "ok" with no second write.
+ */
+export async function confirmUnsubscribe(
+  input: unknown,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const parsed = z.object({ token: z.string().min(1) }).safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: 'missing token' };
+  }
+  const token = parsed.data.token;
+
+  const sep = token.indexOf('.');
+  if (sep < 0) {
+    return { ok: false, error: 'invalid or expired token' };
+  }
+  const subscriberId = token.slice(0, sep);
+  const verified = await verifyTransactionToken(token, subscriberId, 'manage');
+  if (!verified) {
+    return { ok: false, error: 'invalid or expired token' };
+  }
+
+  // Defensive rate limit — the token is the real gate here, so the
+  // shared-IP fallback bucket cannot lock a legitimate user out.
+  const headersList = await headers();
+  const clientIp = getClientIpFromHeaders(headersList);
+  await rateLimit(`unsubscribe:${clientIp}`, 30, 3600);
+
+  try {
+    const rows = db
+      .select()
+      .from(schema.subscribers)
+      .where(eq(schema.subscribers.id, subscriberId))
+      .limit(1)
+      .all();
+    const sub = rows[0];
+    if (!sub) {
+      return { ok: false, error: 'unknown subscriber' };
+    }
+    if (sub.status !== 'unsubscribed') {
+      db.update(schema.subscribers)
+        .set({ status: 'unsubscribed', unsubscribedAt: new Date() })
+        .where(eq(schema.subscribers.id, subscriberId))
+        .run();
+    }
+    return { ok: true, message: "you're out." };
+  } catch (e) {
+    console.error('[unsubscribe] DB error', e);
+    return { ok: false, error: 'server error' };
   }
 }

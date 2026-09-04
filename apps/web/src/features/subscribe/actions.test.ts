@@ -11,12 +11,14 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sendEmailMock, rateLimitMock, signTokenMock, createTransactionTokenMock } = vi.hoisted(() => ({
-  sendEmailMock: vi.fn(),
-  rateLimitMock: vi.fn<(key: string, max: number, windowSeconds: number) => Promise<boolean>>(),
-  signTokenMock: vi.fn<(id: string) => string>(),
-  createTransactionTokenMock: vi.fn<(id: string) => string>(),
-}));
+const { sendEmailMock, rateLimitMock, signTokenMock, createTransactionTokenMock, verifyTokenMock } =
+  vi.hoisted(() => ({
+    sendEmailMock: vi.fn(),
+    rateLimitMock: vi.fn<(key: string, max: number, windowSeconds: number) => Promise<boolean>>(),
+    signTokenMock: vi.fn<(id: string) => string>(),
+    createTransactionTokenMock: vi.fn<(id: string) => string>(),
+    verifyTokenMock: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
+  }));
 
 // Drizzle query builder mock — capture the chained calls.
 type Row = Record<string, unknown>;
@@ -49,6 +51,7 @@ vi.mock('@/lib/rate-limit', () => ({
 vi.mock('@/lib/auth', () => ({
   signToken: (id: string) => signTokenMock(id),
   createTransactionToken: (id: string) => createTransactionTokenMock(id),
+  verifyTransactionToken: (...args: unknown[]) => verifyTokenMock(...(args as [])),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -91,13 +94,14 @@ vi.mock('@/lib/env', () => ({
   env: { NEXT_PUBLIC_SITE_URL: 'http://localhost:3000' },
 }));
 
-import { subscribeToNewsletter } from './actions';
+import { confirmUnsubscribe, subscribeToNewsletter } from './actions';
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(console, 'error').mockImplementation(() => {});
   rateLimitMock.mockResolvedValue(true);
   signTokenMock.mockImplementation((id: string) => `${id}.deadbeef`);
+  verifyTokenMock.mockResolvedValue(false);
   // R-80: v2 confirm token mock — `<id>.<iat>.confirm.<mac>`.
   createTransactionTokenMock.mockImplementation(
     (id: string) => `${id}.${Math.floor(Date.now() / 1000)}.confirm.deadbeef`,
@@ -220,5 +224,58 @@ describe('subscribeToNewsletter (R-3 / R-4)', () => {
     });
     const result = await subscribeToNewsletter({ email: 'a@b.co' });
     expect(result).toEqual({ ok: false, error: 'Server error. Please try again later.' });
+  });
+});
+
+
+describe('confirmUnsubscribe — R-74 (Pass 7, H-42)', () => {
+  it('rejects a token that fails manage-purpose verification', async () => {
+    verifyTokenMock.mockResolvedValue(false);
+
+    const result = await confirmUnsubscribe({ token: 'sub-1.forged' });
+
+    expect(result).toEqual({ ok: false, error: 'invalid or expired token' });
+    expect(updateRunMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed input without touching the DB', async () => {
+    const result = await confirmUnsubscribe({});
+
+    expect(result).toEqual({ ok: false, error: 'missing token' });
+    expect(selectAllMock).not.toHaveBeenCalled();
+  });
+
+  it('unsubscribes a confirmed subscriber via the action', async () => {
+    verifyTokenMock.mockImplementation(async (token: string, id: string, purpose: string) => {
+      void token;
+      void id;
+      return purpose === 'manage';
+    });
+    selectAllMock.mockReturnValue([{ id: 'sub-9', email: 'r@t.dev', status: 'confirmed' }]);
+
+    const result = await confirmUnsubscribe({ token: 'sub-9.good' });
+
+    expect(result).toEqual({ ok: true, message: "you're out." });
+    expect(updateRunMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('is idempotent: an already-unsubscribed subscriber triggers no second write', async () => {
+    verifyTokenMock.mockResolvedValue(true);
+    selectAllMock.mockReturnValue([{ id: 'sub-9', email: 'r@t.dev', status: 'unsubscribed' }]);
+
+    const result = await confirmUnsubscribe({ token: 'sub-9.good' });
+
+    expect(result).toEqual({ ok: true, message: "you're out." });
+    expect(updateRunMock).not.toHaveBeenCalled();
+  });
+
+  it('reports an unknown subscriber instead of writing', async () => {
+    verifyTokenMock.mockResolvedValue(true);
+    selectAllMock.mockReturnValue([]);
+
+    const result = await confirmUnsubscribe({ token: 'sub-404.good' });
+
+    expect(result).toEqual({ ok: false, error: 'unknown subscriber' });
+    expect(updateRunMock).not.toHaveBeenCalled();
   });
 });

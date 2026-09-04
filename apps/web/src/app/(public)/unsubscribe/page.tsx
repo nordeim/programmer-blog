@@ -1,12 +1,19 @@
 /**
  * apps/web/src/app/(public)/unsubscribe/page.tsx — FR-31.
  *
- * GET /unsubscribe?token=<subscriberId>.<hmac>
+ * GET /unsubscribe?token=<subscriberId>.<…>
  *
- * Server component. Verifies the token, looks up the subscriber,
- * updates status to 'unsubscribed' + sets unsubscribedAt. Renders a
- * branded confirmation page. Idempotent: re-clicking the unsubscribe
- * link doesn't error.
+ * Server component. R-74 (Pass 7, H-42): the page is strictly
+ * read-on-GET — it verifies the `manage` token, looks up the subscriber
+ * and renders either a confirmation form (the actual write happens in
+ * the `confirmUnsubscribe` Server Action) or, for an already-
+ * unsubscribed subscriber, the done state directly (idempotent —
+ * re-clicking the link never errors and never re-writes). Renders calm
+ * error copy for missing/invalid tokens (R-55).
+ *
+ * Why: email clients and corporate sanitizers prefetch links with GET;
+ * a destructive write during render silently unsubscribed users who
+ * never clicked anything.
  *
  * Per PAD §3.3 Pattern 6 + Pattern 4.
  */
@@ -16,8 +23,8 @@ import { eq } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
+import { UnsubscribeForm } from '@/features/subscribe/unsubscribe-form';
 import { db, schema } from '@/lib/db';
-
 
 export const metadata: Metadata = {
   title: 'Unsubscribed — /dev/log',
@@ -33,7 +40,8 @@ export default async function UnsubscribePage({ searchParams }: UnsubscribePageP
   const sp = await searchParams;
   const token = sp.token;
   let email: string | null = null;
-  let ok = false;
+  let alreadyUnsubscribed = false;
+  let verified = false;
   let error: string | null = null;
 
   if (!token) {
@@ -61,13 +69,8 @@ export default async function UnsubscribePage({ searchParams }: UnsubscribePageP
             error = 'unknown subscriber';
           } else {
             email = sub.email;
-            if (sub.status !== 'unsubscribed') {
-              db.update(schema.subscribers)
-                .set({ status: 'unsubscribed', unsubscribedAt: new Date() })
-                .where(eq(schema.subscribers.id, subscriberId))
-                .run();
-            }
-            ok = true;
+            verified = true;
+            alreadyUnsubscribed = sub.status === 'unsubscribed';
           }
         } catch (e) {
           console.error('[unsubscribe] DB error', e);
@@ -89,39 +92,43 @@ export default async function UnsubscribePage({ searchParams }: UnsubscribePageP
         >
           {'//'} unsubscribe
         </div>
-        <h1
-          className="font-display font-black text-4xl md:text-6xl"
-          style={{ letterSpacing: '-0.035em', lineHeight: 1.05 }}
-        >
-          {ok ? (
-            <>
+
+        {verified && alreadyUnsubscribed ? (
+          <>
+            <h1
+              className="font-display font-black text-4xl md:text-6xl"
+              style={{ letterSpacing: '-0.035em', lineHeight: 1.05 }}
+            >
               you&apos;re <span style={{ fontStyle: 'italic', fontWeight: 400 }}>out</span>
-            </>
-          ) : (
-            // R-55 (L-39): a missing/expired token is a user-input error,
-            // not a system failure — don't headline "something broke" for it.
-            <>
-              couldn&apos;t <span style={{ fontStyle: 'italic', fontWeight: 400 }}>confirm</span>
-            </>
-          )}
-        </h1>
-        <p className="text-base md:text-lg mt-6" style={{ color: 'var(--muted)' }}>
-          {ok
-            ? `${email ?? 'you'} have been removed from the /dev/log dispatch. you won't receive any more emails from us.`
-            : `$ ${error ?? 'unknown error'}`}
-        </p>
-        {ok ? (
-          <div className="mt-12">
-            <Link href="/" className="btn-secondary">
-              ← back to /dev/log
-            </Link>
-          </div>
+            </h1>
+            <p className="text-base md:text-lg mt-6" style={{ color: 'var(--muted)' }}>
+              {`${email ?? 'you'} have been removed from the /dev/log dispatch. you won't receive any more emails from us.`}
+            </p>
+            <div className="mt-12">
+              <Link href="/" className="btn-secondary">
+                ← back to /dev/log
+              </Link>
+            </div>
+          </>
+        ) : verified && email && token ? (
+          <UnsubscribeForm token={token} email={email} />
         ) : (
-          <div className="mt-12">
-            <Link href="/#about" className="btn-secondary">
-              ← subscribe
-            </Link>
-          </div>
+          <>
+            <h1
+              className="font-display font-black text-4xl md:text-6xl"
+              style={{ letterSpacing: '-0.035em', lineHeight: 1.05 }}
+            >
+              couldn&apos;t <span style={{ fontStyle: 'italic', fontWeight: 400 }}>confirm</span>
+            </h1>
+            <p className="text-base md:text-lg mt-6" style={{ color: 'var(--muted)' }}>
+              {`$ ${error ?? 'unknown error'}`}
+            </p>
+            <div className="mt-12">
+              <Link href="/#about" className="btn-secondary">
+                ← subscribe
+              </Link>
+            </div>
+          </>
         )}
       </div>
     </section>

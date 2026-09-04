@@ -1,11 +1,13 @@
 /**
- * apps/web/src/app/(public)/unsubscribe/page.test.tsx — R-55 (Pass 5, L-39).
+ * apps/web/src/app/(public)/unsubscribe/page.test.tsx — R-55 (Pass 5, L-39)
+ * + R-74 (Pass 7, H-42).
  *
- * The missing/invalid-token state used to headline "something broke",
- * which reads as a SYSTEM failure for what is a USER-input error (a
- * newsletter email link with a missing/expired token). R-55 renders a
- * calm "couldn't confirm" state instead; the success state ("you're
- * out") is unchanged.
+ * R-74: the page used to perform the destructive unsubscribe DB write
+ * during the GET render — email scanners and privacy prefetchers follow
+ * links with GET, silently unsubscribing users who never clicked. The
+ * GET now renders a confirmation form (or the already-unsubscribed done
+ * state, idempotently); ONLY the `confirmUnsubscribe` Server Action
+ * writes. The R-55 calm error copy for missing/invalid tokens is kept.
  */
 import { render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -33,6 +35,12 @@ vi.mock('@devlog/auth', () => ({
   verifyTransactionToken: (...args: unknown[]) => verifyTokenMock(...(args as [])),
 }));
 
+const confirmUnsubscribeMock = vi.fn(async () => ({ ok: true, message: 'done' }));
+
+vi.mock('@/features/subscribe/actions', () => ({
+  confirmUnsubscribe: (...args: unknown[]) => confirmUnsubscribeMock(...(args as [])),
+}));
+
 import UnsubscribePage from './page';
 
 describe('UnsubscribePage — R-55 (L-39 error-state copy)', () => {
@@ -40,6 +48,7 @@ describe('UnsubscribePage — R-55 (L-39 error-state copy)', () => {
     verifyTokenMock.mockClear();
     verifyTokenMock.mockResolvedValue(false);
     chainable.all.mockReturnValue([]);
+    chainable.run.mockClear();
   });
 
   it('does NOT headline "something broke" for a missing token', async () => {
@@ -57,8 +66,16 @@ describe('UnsubscribePage — R-55 (L-39 error-state copy)', () => {
     const { container } = render(ui);
     expect(container.textContent).not.toMatch(/something broke/i);
   });
+});
 
-  it('keeps the branded success headline on a verified unsubscribe', async () => {
+describe('UnsubscribePage — R-74 (H-42): no destructive write on GET', () => {
+  beforeEach(() => {
+    verifyTokenMock.mockClear();
+    chainable.all.mockReturnValue([]);
+    chainable.run.mockClear();
+  });
+
+  it('renders a confirmation form and performs NO write for a verified subscriber', async () => {
     verifyTokenMock.mockResolvedValue(true);
     chainable.all.mockReturnValue([
       { id: 'sub-1', email: 'reader@test.dev', status: 'confirmed' },
@@ -69,8 +86,42 @@ describe('UnsubscribePage — R-55 (L-39 error-state copy)', () => {
     });
     const { container } = render(ui);
 
+    expect(container.querySelector('form')).toBeTruthy();
+    expect(container.querySelector('input[name="token"]')?.getAttribute('value')).toBe(
+      'sub-1.good',
+    );
+    expect(container.textContent).toMatch(/reader@test\.dev/);
+    expect(container.textContent).toMatch(/confirm/i);
+    // THE regression pin: GET must never mutate.
+    expect(chainable.run).not.toHaveBeenCalled();
+  });
+
+  it('shows the done state directly (no write) when already unsubscribed', async () => {
+    verifyTokenMock.mockResolvedValue(true);
+    chainable.all.mockReturnValue([
+      { id: 'sub-1', email: 'reader@test.dev', status: 'unsubscribed' },
+    ]);
+
+    const ui = await UnsubscribePage({
+      searchParams: Promise.resolve({ token: 'sub-1.good' }),
+    });
+    const { container } = render(ui);
+
     expect(container.textContent).toMatch(/you're/i);
-    expect(container.textContent).toMatch(/out/i);
     expect(container.textContent).toMatch(/removed from the \/dev\/log dispatch/i);
+    expect(chainable.run).not.toHaveBeenCalled();
+  });
+
+  it('keeps the calm error copy for an unknown subscriber', async () => {
+    verifyTokenMock.mockResolvedValue(true);
+    chainable.all.mockReturnValue([]);
+
+    const ui = await UnsubscribePage({
+      searchParams: Promise.resolve({ token: 'sub-404.good' }),
+    });
+    const { container } = render(ui);
+
+    expect(container.textContent).toMatch(/couldn't confirm/i);
+    expect(container.textContent).toMatch(/unknown subscriber/);
   });
 });
