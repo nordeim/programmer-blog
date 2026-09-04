@@ -1,18 +1,66 @@
 /**
  * packages/db/src/seed.ts — seed mockup data.
  *
- * Inserts the 3 mockup article cards (FR-8), the 6 mockup archive items (FR-11),
- * 5 mockup snippets, 8 tags, 1 author user, and 1 site_settings row.
+ * Inserts 9 posts (mockup article cards + archive items, FR-8/FR-11), 12 tags,
+ * 1 author user, 3 subscribers, 2 comments, and 1 site_settings row. Snippets
+ * are NOT seeded — they are MDX files under apps/web/content/snippets/.
  *
  * Idempotent: checks if data exists before inserting. Re-running it does nothing.
  *
  * Exposes `runSeed()` — called by apps/web/src/scripts/seed.ts via `pnpm db:seed`.
+ *
+ * R-57 (audit C-38): the author password is resolved by `resolveAuthorPassword()`
+ * — production seeds without an explicit DEV_AUTHOR_PASSWORD throw instead of
+ * silently using the publicly-known dev default.
  */
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import { desc, eq } from 'drizzle-orm';
 
 import { db } from './client';
 import { hashPassword } from './password';
 import { comments, posts, postsToTags, siteSettings, subscribers, tags, users } from './schema';
+
+/**
+ * The documented dev-only default author password. Public in the repo by
+ * design (it is a dev convenience); R-57 (audit C-38) guarantees it can
+ * never silently guard a production seed.
+ */
+export const DEFAULT_DEV_AUTHOR_PASSWORD = 'dev-password-12345';
+
+/**
+ * R-57 (audit C-38): resolve the author password for `runSeed()`.
+ *
+ * - `DEV_AUTHOR_PASSWORD` always wins — including production, where
+ *   `start_server.sh` generates a strong random value when the operator
+ *   has not set one.
+ * - Outside production, fall back to the documented dev default so
+ *   `pnpm dev` + the login-page hint keep working out of the box.
+ * - In production WITHOUT the var: throw. Seeding the internet-facing
+ *   author account with a password that is public in the repo is a
+ *   critical takeover vector (posts CRUD, comment moderation, subscriber
+ *   PII export), and there is no in-app password-change UI to recover.
+ * - The known default explicitly re-set in production is also refused —
+ *   it means the env propagated a dev value to a prod deploy.
+ */
+export function resolveAuthorPassword(
+  env: { NODE_ENV?: string | undefined; DEV_AUTHOR_PASSWORD?: string | undefined } = process.env,
+): string {
+  const provided = env.DEV_AUTHOR_PASSWORD;
+  if (provided && !(env.NODE_ENV === 'production' && provided === DEFAULT_DEV_AUTHOR_PASSWORD)) {
+    return provided;
+  }
+  if (env.NODE_ENV === 'production') {
+    throw new Error(
+      '[seed] Refusing to seed a production database with a publicly-known author password.\n' +
+        '  Set DEV_AUTHOR_PASSWORD to a strong unique value in the deploy environment, e.g.:\n' +
+        '    DEV_AUTHOR_PASSWORD="$(openssl rand -base64 24)" pnpm db:seed\n' +
+        '  `bash start_server.sh` does this automatically when the var is absent.',
+    );
+  }
+  return DEFAULT_DEV_AUTHOR_PASSWORD;
+}
 
 const TAG_SEED: { slug: string; name: string }[] = [
   { slug: 'javascript', name: 'JavaScript' },
@@ -253,7 +301,7 @@ export async function runSeed(): Promise<void> {
     // R-1 (audit remediation): compute a real scrypt hash of the dev password
     // at seed time, so the auth flow can verify with verifyPassword().
     // Format: scrypt:N:r:p:salt-hex:hash-hex — matches packages/auth/src/password.ts.
-    const devPassword = process.env.DEV_AUTHOR_PASSWORD ?? 'dev-password-12345';
+    const devPassword = resolveAuthorPassword();
     const authorHash = hashPassword(devPassword);
     const result = await db
       .insert(users)
@@ -375,7 +423,9 @@ export async function runSeed(): Promise<void> {
 
 // If invoked directly via `tsx packages/db/src/seed.ts`, run the seed.
 // When imported by apps/web/src/scripts/seed.ts, the caller invokes runSeed().
-if (import.meta.url === `file://${process.argv[1]}`) {
+// R-67 (audit L-42): pathToFileURL instead of string concat — the raw
+// `file://${argv[1]}` comparison breaks on spaces / percent-encoding.
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   runSeed().catch((err) => {
     console.error('[seed] Failed:', err);
     process.exit(1);

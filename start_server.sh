@@ -6,6 +6,7 @@
 # no .env.local). Handles the full R-47 checklist:
 #   - absolute DATABASE_PATH (C-36)
 #   - BETTER_AUTH_SECRET + SIGNED_TOKEN_SECRET ≥32 (R-5)
+#   - DEV_AUTHOR_PASSWORD random-generated if absent (R-57, audit C-38)
 #   - NEXT_PUBLIC_SITE_URL prod at build + runtime (H-37 / R-49 / R-52)
 #   - DB init (migrate + seed)
 #   - type/lint/test gate + build (postbuild copies static)
@@ -142,6 +143,17 @@ ensure_env() {
   ensure_var "SIGNED_TOKEN_SECRET" "" 32
   ensure_var "NEXT_PUBLIC_SITE_URL" "$PROD_URL" 0
   ensure_var "BETTER_AUTH_URL"       "$PROD_URL" 0
+
+  # R-57 (audit C-38): the seeded author account must never use the publicly-known
+  # dev default in a production deployment. seed.ts refuses to run without this var
+  # when NODE_ENV=production; here we generate a strong random one and print it ONCE
+  # so the operator can store it (no in-app password-change UI exists yet).
+  if ! grep -qE "^DEV_AUTHOR_PASSWORD=" "$REPO_ROOT/.env.local"; then
+    local gen_pw
+    gen_pw="$(openssl rand -base64 24 2>/dev/null || head -c 24 /dev/urandom | base64)"
+    printf 'DEV_AUTHOR_PASSWORD=%s\n' "$gen_pw" >> "$REPO_ROOT/.env.local"
+    log "  generated DEV_AUTHOR_PASSWORD (store it now — printed once): $gen_pw"
+  fi
 
   # Ensure the Next.js build sees the same env regardless of cwd.
   # Next.js loads apps/web/.env.local when run via `pnpm --filter @devlog/web`.

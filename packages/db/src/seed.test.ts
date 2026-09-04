@@ -12,6 +12,60 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
 import * as schema from './schema';
+import { resolveAuthorPassword } from './seed';
+
+const ENV_KEYS = ['NODE_ENV', 'DEV_AUTHOR_PASSWORD'] as const;
+
+function withEnv(values: Record<(typeof ENV_KEYS)[number], string | undefined>, fn: () => void): void {
+  const saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+  const setEnv = (k: string, v: string | undefined): void => {
+    if (v === undefined) {
+      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- test-only env sandbox
+      delete process.env[k];
+    } else {
+      process.env[k] = v;
+    }
+  };
+  try {
+    for (const k of ENV_KEYS) setEnv(k, values[k]);
+    fn();
+  } finally {
+    for (const k of ENV_KEYS) setEnv(k, saved[k]);
+  }
+}
+
+describe('resolveAuthorPassword (R-57, audit C-38)', () => {
+  // NOTE: no afterEach env cleanup — withEnv() restores the original env
+  // in its own finally block (assigning process.env.X = undefined would
+  // coerce to the STRING "undefined" and pollute later reads).
+
+  it('uses DEV_AUTHOR_PASSWORD when provided, regardless of environment', () => {
+    withEnv({ NODE_ENV: 'production', DEV_AUTHOR_PASSWORD: 'operator-set-strong-pw' }, () => {
+      expect(resolveAuthorPassword()).toBe('operator-set-strong-pw');
+    });
+  });
+
+  it('falls back to the documented dev default outside production', () => {
+    withEnv({ NODE_ENV: 'development', DEV_AUTHOR_PASSWORD: undefined }, () => {
+      expect(resolveAuthorPassword()).toBe('dev-password-12345');
+    });
+    withEnv({ NODE_ENV: 'test', DEV_AUTHOR_PASSWORD: undefined }, () => {
+      expect(resolveAuthorPassword()).toBe('dev-password-12345');
+    });
+  });
+
+  it('throws in production when DEV_AUTHOR_PASSWORD is unset (no silent public default)', () => {
+    withEnv({ NODE_ENV: 'production', DEV_AUTHOR_PASSWORD: undefined }, () => {
+      expect(() => resolveAuthorPassword()).toThrowError(/DEV_AUTHOR_PASSWORD/);
+    });
+  });
+
+  it('refuses the known public default when it is explicitly re-set in production', () => {
+    withEnv({ NODE_ENV: 'production', DEV_AUTHOR_PASSWORD: 'dev-password-12345' }, () => {
+      expect(() => resolveAuthorPassword()).toThrowError(/DEV_AUTHOR_PASSWORD/);
+    });
+  });
+});
 
 describe('drizzle schema sanity', () => {
   it('defines all expected tables', () => {
