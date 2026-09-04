@@ -69,8 +69,25 @@ function warnIfLocalhostSiteUrlInProduction(env: Env): void {
   }
 }
 
+// R-73 (Pass 7, H-40): a `.env.local` line like `RESEND_API_KEY=` makes the
+// var PRESENT-but-empty. Optional Zod validators (`.startsWith('re_')`,
+// `.min(8)`) fail on `''`, which crashed every production build produced by
+// the documented `cp .env.example .env.local` quick start. Normalize empty
+// strings to absent ("empty = unset") before parsing; required secrets still
+// fail loudly — an empty BETTER_AUTH_SECRET throws both here (absent →
+// R-61 check) and via the Zod min(32) rule.
+function withEmptyVarsUnset(
+  source: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  const normalized: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(source)) {
+    normalized[key] = value === '' ? undefined : value;
+  }
+  return normalized;
+}
+
 function loadEnv(): Env {
-  const parsed = EnvSchema.safeParse(process.env);
+  const parsed = EnvSchema.safeParse(withEmptyVarsUnset(process.env));
   if (parsed.success) {
     const absentCritical = [...SECURITY_CRITICAL_KEYS].filter(
       (k) => !parsed.data[k as keyof Env],

@@ -68,6 +68,70 @@ describe('env — R-61 missing production secrets throw at boot (M-45)', () => {
   });
 });
 
+describe('env — R-73 present-but-empty optional vars are treated as unset (H-40)', () => {
+  const ORIGINALS = [
+    'BETTER_AUTH_SECRET',
+    'SIGNED_TOKEN_SECRET',
+    'NEXT_PUBLIC_SITE_URL',
+    'RESEND_API_KEY',
+    'DEV_AUTHOR_PASSWORD',
+    'CRON_SECRET',
+  ] as const;
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    vi.resetModules();
+    for (const k of ORIGINALS) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+
+  afterEach(() => {
+    for (const k of ORIGINALS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+    vi.unstubAllEnvs();
+  });
+
+  it('boots a production build with empty-string optional vars (the .env.example quick-start trap)', async () => {
+    // This is the exact shape produced by `cp .env.example .env.local` —
+    // present-but-empty lines that pre-R-73 failed Zod and crashed every
+    // production build with "Invalid environment variables: RESEND_API_KEY".
+    vi.stubEnv('NODE_ENV', 'production');
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://programmer-blog.example';
+    process.env.BETTER_AUTH_SECRET = 'x'.repeat(32);
+    process.env.SIGNED_TOKEN_SECRET = 'y'.repeat(32);
+    process.env.RESEND_API_KEY = '';
+    process.env.DEV_AUTHOR_PASSWORD = '';
+    process.env.CRON_SECRET = '';
+
+    const mod = await import('./env');
+    expect(mod.env.RESEND_API_KEY).toBeUndefined();
+    expect(mod.env.DEV_AUTHOR_PASSWORD).toBeUndefined();
+    expect(mod.env.CRON_SECRET).toBeUndefined();
+  });
+
+  it('still throws in production when a required secret is an empty string', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://programmer-blog.example';
+    process.env.BETTER_AUTH_SECRET = '';
+
+    await expect(import('./env')).rejects.toThrow(/BETTER_AUTH_SECRET/);
+  });
+
+  it('still rejects a malformed non-empty optional value in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://programmer-blog.example';
+    process.env.BETTER_AUTH_SECRET = 'x'.repeat(32);
+    process.env.SIGNED_TOKEN_SECRET = 'y'.repeat(32);
+    process.env.RESEND_API_KEY = 'not-a-resend-key';
+
+    await expect(import('./env')).rejects.toThrow(/RESEND_API_KEY/);
+  });
+});
+
 describe('env — R-41 production localhost-URL warning (H-36)', () => {
   const ORIGINAL_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL;
   let warnSpy: ReturnType<typeof vi.spyOn>;
