@@ -79,7 +79,7 @@ export default async function PreferencesPage({ searchParams }: PreferencesPageP
 
   return (
     <section
-      className="py-24 md:py-32 px-6 min-h-[60vh] flex items-center"
+      className="py-24 md:py-32 px-6 min-h-page flex items-center"
       data-testid="preferences-page"
     >
       <div className="max-w-3xl mx-auto w-full">

@@ -81,7 +81,7 @@ export function TagFilter({
         </select>
       </div>
 
-      <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+      <div className="flex flex-col gap-1 flex-1 min-w-45">
         <label htmlFor={queryId} className="font-mono text-xs uppercase tracking-widest" style={{ color: 'var(--muted)' }}>
           search
         </label>

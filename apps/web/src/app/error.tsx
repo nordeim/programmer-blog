@@ -24,7 +24,7 @@ export default function GlobalError({ error, reset }: ErrorBoundaryProps) {
   }, [error]);
 
   return (
-    <section className="py-32 px-6 min-h-[60vh] flex items-center" data-testid="error-page">
+    <section className="py-32 px-6 min-h-page flex items-center" data-testid="error-page">
       <div className="max-w-3xl mx-auto w-full">
         <div
           className="font-mono text-xs uppercase tracking-widest mb-4"

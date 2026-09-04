@@ -61,7 +61,7 @@ export function SubscriberList({ subscribers }: SubscriberListProps) {
             ))}
           </select>
         </div>
-        <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
+        <div className="flex flex-col gap-1 flex-1 min-w-50">
           <label htmlFor="sl-search" className="font-mono text-xs uppercase tracking-widest" style={{ color: 'var(--muted)' }}>
             search
           </label>

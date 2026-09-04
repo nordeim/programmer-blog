@@ -383,6 +383,13 @@ body.theme-anim *::after {
   transform: translateX(100%);
 }
 
+/* R-90 (Pass 7, L-53): named utility replacing the min-h-[60vh] literal —
+ * full-viewport-height centered states (login, error, not-found,
+ * unsubscribe, preferences). */
+.min-h-page {
+  min-height: 60vh;
+}
+
 .btn-secondary {
   background: transparent;
   color: var(--fg);

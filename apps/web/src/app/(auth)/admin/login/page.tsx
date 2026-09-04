@@ -55,7 +55,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   }
 
   return (
-    <section className="py-24 md:py-32 px-6 min-h-[60vh] flex items-center" data-testid="login-page">
+    <section className="py-24 md:py-32 px-6 min-h-page flex items-center" data-testid="login-page">
       <div className="max-w-3xl mx-auto w-full">
         <Link href="/" className="hover-link font-mono text-xs" style={{ color: 'var(--muted)' }}>
           ← back to /dev/log
