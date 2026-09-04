@@ -60,7 +60,12 @@ export async function getArchivePosts(
   tagSlug?: string,
   query?: string,
 ) {
-  const offset = Math.max(0, (page - 1) * pageSize);
+  // R-85 (Pass 7, L-48): clamp both axes — drizzle forwards pageSize
+  // straight into SQLite LIMIT, and LIMIT -1 means "no limit" there,
+  // so a caller bug would silently turn this into an unbounded scan.
+  const safePageSize = Math.max(1, Math.floor(pageSize));
+  const safePage = Math.max(1, Math.floor(page));
+  const offset = (safePage - 1) * safePageSize;
   const conditions: ReturnType<typeof eq>[] = [eq(posts.status, 'published')];
   const searchClause = buildSearchCondition(query);
   if (searchClause) conditions.push(searchClause);
@@ -86,7 +91,7 @@ export async function getArchivePosts(
       .innerJoin(tags, eq(tags.id, postsToTags.tagId))
       .where(and(eq(tags.slug, tagSlug.toLowerCase()), ...conditions))
       .orderBy(desc(posts.publishedAt))
-      .limit(pageSize)
+      .limit(safePageSize)
       .offset(offset)
       .all();
     return rows;
@@ -97,7 +102,7 @@ export async function getArchivePosts(
     .from(posts)
     .where(and(...conditions))
     .orderBy(desc(posts.publishedAt))
-    .limit(pageSize)
+    .limit(safePageSize)
     .offset(offset)
     .all();
 }
@@ -134,6 +139,12 @@ export async function getArchiveCount(tagSlug?: string, query?: string) {
 export async function getAdjacentPosts(slug: string) {
   const current = await db.select().from(posts).where(eq(posts.slug, slug)).limit(1).get();
   if (!current) return { previous: null, next: null };
+
+  // R-85 (Pass 7, L-48): a post with no publication date (e.g. a draft
+  // rendered by mistake) has no meaningful position in the timeline —
+  // postEpochSeconds(null) resolves to 0 and made "next" incorrectly
+  // resolve to the oldest published post.
+  if (current.publishedAt === null) return { previous: null, next: null };
 
   // R-32 (C-33): bind epoch SECONDS, not a Date object — better-sqlite3
   // rejects Date binds and 500s every post page.

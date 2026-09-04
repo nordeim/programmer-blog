@@ -96,6 +96,22 @@ afterAll(() => {
   // (The singleton stays for the process lifetime; vitest exits anyway.)
 });
 
+describe('query guards — R-85 (Pass 7, L-48)', () => {
+  it('clamps pageSize <= 0 to 1 so LIMIT never becomes unbounded (-1)', async () => {
+    // 3 published posts in the fixture; a negative pageSize pre-guard
+    // flowed into drizzle LIMIT -1 — which SQLite treats as "no limit" —
+    // returning the whole table.
+    expect((await getArchivePosts(1, -5)).length).toBe(1);
+    expect((await getArchivePosts(1, 0)).length).toBe(1);
+  });
+
+  it('getAdjacentPosts returns nulls for a post with a null publishedAt', async () => {
+    // draft-d ships with publishedAt = null; pre-guard, its ts resolved
+    // to 0 and "next" incorrectly resolved to the oldest published post.
+    expect(await getAdjacentPosts('draft-d')).toEqual({ previous: null, next: null });
+  });
+});
+
 describe('getArchiveCount — C-32 ::int regression', () => {
   it('counts published posts without throwing (SQLite has no :: casts)', async () => {
     await expect(getArchiveCount()).resolves.toBe(3);
