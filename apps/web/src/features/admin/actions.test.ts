@@ -296,6 +296,44 @@ describe('updatePost / deletePost / moderateComment / updateSiteSettings', () =>
     expect(r.ok).toBe(true);
   });
 
+  it('createPost dedupes tagSlugs before inserting join rows (R-82)', async () => {
+    requireAuthorSpy.mockResolvedValue({ id: 'u1' });
+    selectSpy.mockReset();
+    insertSpy.mockReset();
+    // The db mock's select() AND its .get()/.all() terminators hit the
+    // same spy, so respond by call sequence: the slug-conflict check is
+    // calls 1-2 (no conflict → undefined), the tag lookup is calls 3-4
+    // (tag rows).
+    let selectCall = 0;
+    selectSpy.mockImplementation(() => {
+      selectCall += 1;
+      if (selectCall <= 2) return undefined;
+      return [
+        { id: 't1', slug: 'rust' },
+        { id: 't2', slug: 'web' },
+      ];
+    });
+
+    const r = await createPost({
+      title: 'Tagged Post',
+      slug: 'tagged-post',
+      excerpt: 'E.',
+      contentMdx: '# T',
+      status: 'draft',
+      tagSlugs: ['rust', 'rust', 'web', 'rust'],
+    });
+
+    expect(r.ok).toBe(true);
+    // db.insert() receives the TABLE in this mock — the join-table mock
+    // object is the one carrying a tagId key. Pre-dedupe: 4 inserts for
+    // the 4-entry (duped) list; post-dedupe: exactly 2.
+    const joinInserts = insertSpy.mock.calls.filter((c) => {
+      const t = c[0] as { tagId?: unknown } | undefined;
+      return typeof t === 'object' && t !== null && 'tagId' in t;
+    });
+    expect(joinInserts).toHaveLength(2);
+  });
+
   it('deletePost fails when not author', async () => {
     requireAuthorSpy.mockImplementation(() => {
       throw new Error('AUTHOR_REQUIRED');

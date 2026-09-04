@@ -96,6 +96,16 @@ afterAll(() => {
   // (The singleton stays for the process lifetime; vitest exits anyway.)
 });
 
+describe('posts_to_tags unique constraint — R-82 (Pass 7, L-45)', () => {
+  it('rejects a duplicate (postId, tagId) row at the schema level', () => {
+    // pc + t1 already associated in the fixture — a second insert must
+    // throw instead of silently double-counting in tag listings.
+    expect(() =>
+      db.insert(postsToTags).values({ postId: 'pc', tagId: 't1' }).run(),
+    ).toThrow();
+  });
+});
+
 describe('query guards — R-85 (Pass 7, L-48)', () => {
   it('clamps pageSize <= 0 to 1 so LIMIT never becomes unbounded (-1)', async () => {
     // 3 published posts in the fixture; a negative pageSize pre-guard

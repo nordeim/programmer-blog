@@ -13,7 +13,7 @@
  *  - site_settings is a single row (id = 1); the application enforces "no second row".
  */
 import { sql } from 'drizzle-orm';
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // ── users ────────────────────────────────────────────────────────────────────
 export const users = sqliteTable('users', {
@@ -110,7 +110,13 @@ export const postsToTags = sqliteTable(
       .notNull()
       .references(() => tags.id, { onDelete: 'cascade' }),
   },
-  (table) => [index('posts_to_tags_post_idx').on(table.postId), index('posts_to_tags_tag_idx').on(table.tagId)],
+  (table) => [
+    index('posts_to_tags_post_idx').on(table.postId),
+    index('posts_to_tags_tag_idx').on(table.tagId),
+    // R-82 (Pass 7, L-45): one row per (post, tag) pair — duplicate rows
+    // double-count tag listings and archive joins.
+    uniqueIndex('posts_to_tags_unique').on(table.postId, table.tagId),
+  ],
 );
 
 // ── subscribers (newsletter) ─────────────────────────────────────────────────

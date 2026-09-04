@@ -134,7 +134,11 @@ export async function createPost(input: unknown): Promise<AdminResult & { postId
         .from(schema.tags)
         .all();
       const slugToId = new Map(tagRows.map((t) => [t.slug, t.id]));
-      for (const slugT of data.tagSlugs) {
+      // R-82 (Pass 7, L-45): dedupe before inserting — the schema's
+      // posts_to_tags_unique index makes duplicate rows a hard error, and
+      // pre-dedupe an author-supplied list with repeats surfaced that raw
+      // constraint failure as 'Server error.'.
+      for (const slugT of [...new Set(data.tagSlugs)]) {
         const tagId = slugToId.get(slugT);
         if (tagId) {
           db.insert(schema.postsToTags)
@@ -228,7 +232,8 @@ export async function updatePost(
       db.delete(schema.postsToTags).where(eq(schema.postsToTags.postId, postId)).run();
       const tagRows = db.select({ id: schema.tags.id, slug: schema.tags.slug }).from(schema.tags).all();
       const slugToId = new Map(tagRows.map((t) => [t.slug, t.id]));
-      for (const slugT of data.tagSlugs) {
+      // R-82: dedupe (see createPost) — the unique index rejects repeats.
+      for (const slugT of [...new Set(data.tagSlugs)]) {
         const tagId = slugToId.get(slugT);
         if (tagId) {
           db.insert(schema.postsToTags).values({ postId, tagId }).run();

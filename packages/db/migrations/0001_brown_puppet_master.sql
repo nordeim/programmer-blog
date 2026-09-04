@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `posts_to_tags_unique` ON `posts_to_tags` (`post_id`,`tag_id`);
