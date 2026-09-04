@@ -1,9 +1,15 @@
 /**
- * apps/web/src/lib/request-ip.test.ts — R-40 (Pass 4, H-35).
+ * apps/web/src/lib/request-ip.test.ts — R-40 (Pass 4, H-35) + R-76 (Pass 7, M-50).
  *
  * Pins the contract for deriving the real client IP from proxy headers
  * server-side, so the comment/subscribe/login rate limiters key on the
  * actual requester instead of a shared fallback bucket (postId / email).
+ *
+ * R-76: within an `x-forwarded-for` chain the RIGHTMOST entry is the one
+ * added by the closest trusted proxy (nginx `$proxy_add_x_forwarded_for`
+ * and Cloudflare append; they never rewrite earlier entries). Taking the
+ * first entry trusted whatever the client sent, fully bypassing every
+ * per-IP rate limit.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -16,18 +22,24 @@ function headersFrom(map: Record<string, string>): { get: Getter } {
 }
 
 describe('getClientIpFromHeaders — R-40', () => {
-  it('returns the first x-forwarded-for entry (single value)', () => {
+  it('returns the x-forwarded-for entry (single value)', () => {
     const h = headersFrom({ 'x-forwarded-for': '203.0.113.7' });
     expect(getClientIpFromHeaders(h)).toBe('203.0.113.7');
   });
 
-  it('returns the first x-forwarded-for entry (comma-separated chain)', () => {
+  it('returns the RIGHTMOST x-forwarded-for entry in a chain (R-76)', () => {
+    // Attacker-sent first entry, proxy-observed client last.
     const h = headersFrom({ 'x-forwarded-for': '203.0.113.7, 70.41.3.18, 150.172.238.178' });
-    expect(getClientIpFromHeaders(h)).toBe('203.0.113.7');
+    expect(getClientIpFromHeaders(h)).toBe('150.172.238.178');
   });
 
   it('trims surrounding whitespace from the entry', () => {
     const h = headersFrom({ 'x-forwarded-for': '  203.0.113.7  , 70.41.3.18' });
+    expect(getClientIpFromHeaders(h)).toBe('70.41.3.18');
+  });
+
+  it('ignores trailing empty entries (e.g. "1.1.1.1, ")', () => {
+    const h = headersFrom({ 'x-forwarded-for': '203.0.113.7, ' });
     expect(getClientIpFromHeaders(h)).toBe('203.0.113.7');
   });
 

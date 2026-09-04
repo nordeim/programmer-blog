@@ -21,12 +21,20 @@ interface HeaderGetter {
 
 export function getClientIpFromHeaders(headersList: HeaderGetter): string {
   // x-forwarded-for is the standard header from reverse proxies (Vercel,
-  // nginx, etc.). It may contain a comma-separated list; the first
-  // entry is the originating client.
+  // nginx, Cloudflare, …). It may contain a comma-separated chain, and
+  // appending proxies put the proxy-observed client LAST. R-76 (Pass 7,
+  // M-50): the rightmost entry is the only hop we did not receive
+  // verbatim from the client, so it is the best available rate-limit key.
+  // (Taking the first entry trusted whatever the client sent — every
+  // per-IP limit was bypassable by rotating a fake XFF.)
   const xff = headersList.get('x-forwarded-for');
   if (xff) {
-    const first = xff.split(',')[0]?.trim();
-    if (first) return first;
+    const entries = xff
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    const last = entries.at(-1);
+    if (last) return last;
   }
   // Fallback to x-real-ip (some proxies set this).
   const xRealIp = headersList.get('x-real-ip');
