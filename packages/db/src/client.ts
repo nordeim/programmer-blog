@@ -51,7 +51,7 @@ function createDrizzleClient(opts: { allowCreate?: boolean } = {}): DrizzleClien
   // Exception: the migrations bootstrap path (openDatabaseForMigrations)
   // explicitly opts into creation — applying `pnpm db:migrate` to a fresh
   // deployment is the one legitimate way a database file comes into being.
-  if (!opts.allowCreate && !existsSync(dbPath)) {
+  if (!opts.allowCreate && !existsSync(/* turbopackIgnore: true */ dbPath)) {
     throw new Error(
       `[devlog/db] SQLite database does not exist at "${dbPath}". ` +
         `Refusing to boot against an empty database. Remedy: run "pnpm db:generate && pnpm db:migrate && pnpm db:seed" against this file, ` +

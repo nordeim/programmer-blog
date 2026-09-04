@@ -418,12 +418,12 @@ export async function runSeed(): Promise<void> {
   const allTags = await db.select().from(tags).all();
   const allSubscribers = await db.select().from(subscribers).all();
   const allComments = await db.select().from(comments).all();
-  console.log('\n[seed] Done. Final counts:');
+  console.log('\n[seed] Done. Final counts (totals in file — not delta):');
   console.log(`  - users:        ${1} (author)`);
   console.log(`  - posts:        ${allPosts.length}`);
   console.log(`  - tags:         ${allTags.length}`);
-  console.log(`  - subscribers:  ${allSubscribers.length}`);
-  console.log(`  - comments:     ${allComments.length}`);
+  console.log(`  - subscribers:  ${allSubscribers.length} (seed inserts ${SUBSCRIBER_SEED.length} only when empty — higher totals mean a dirty DB)`);
+  console.log(`  - comments:     ${allComments.length} (seed inserts ${COMMENT_SEED.length} only when empty)`);
   console.log(`  - site_settings: 1`);
 }
 

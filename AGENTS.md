@@ -25,7 +25,7 @@ Compact instructions for AI coding agents working in `/dev/log`. Read before edi
 | **Full quality gate** | **`pnpm check`** |
 | Generate SQL migration | `pnpm db:generate` (`drizzle-kit generate --config ./drizzle.config.ts` in `@devlog/db`) |
 | Apply migrations | `pnpm db:migrate` (creates `apps/web/devlog.db`) |
-| Seed dev DB | `pnpm db:seed` (9 posts, 12 tags, 3 subscribers, 2 comments, 1 author — snippets are MDX files, not DB rows) |
+| Seed dev DB | `pnpm db:seed` (9 posts, 12 tags, 3 subscribers, 2 comments, 1 author — snippets are MDX files, not DB rows; log shows **totals** in file, not delta — re-running on a dirty `devlog.db` reports higher totals) |
 | Init DB from scratch | `pnpm db:setup` (= `db:generate && db:migrate && db:seed`) |
 | Drizzle Studio | `pnpm db:studio` → http://localhost:4983 |
 | Single-package test | `pnpm --filter @devlog/web test` |
