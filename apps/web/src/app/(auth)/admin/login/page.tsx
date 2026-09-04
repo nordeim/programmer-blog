@@ -22,6 +22,14 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+/**
+ * R-49 (Pass 5, H-37): this page's canonical inherits the root layout's
+ * `metadataBase`, which was baked from the build machine's env on the
+ * static prerender. Hourly revalidation keeps the rendered metadata in
+ * sync with the runtime `NEXT_PUBLIC_SITE_URL`.
+ */
+export const revalidate = 3600;
+
 interface LoginPageProps {
   searchParams: Promise<{ next?: string }>;
 }

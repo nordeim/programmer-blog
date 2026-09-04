@@ -11,7 +11,12 @@ import 'server-only';
 import { env } from '@/lib/env';
 
 export const dynamic = 'force-static';
-export const revalidate = 86400;
+/**
+ * R-52 (Pass 5, M-41): revalidate hourly like the feeds. The previous
+ * 24h cadence served a build-machine URL (`Sitemap: http://localhost:3000/…`)
+ * for up to a day after each deploy.
+ */
+export const revalidate = 3600;
 
 export async function GET() {
   const siteUrl = env.NEXT_PUBLIC_SITE_URL;

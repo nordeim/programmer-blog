@@ -27,6 +27,17 @@ import { env } from '@/lib/env';
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,80}[a-z0-9])?$/;
 
+/**
+ * R-49 (Pass 5, H-37): the prerendered HTML bakes absolute URLs
+ * (canonical, og:url, og:image) from the BUILD environment. Deploy
+ * pipelines routinely build without the runtime `NEXT_PUBLIC_SITE_URL`,
+ * so the live site served `http://localhost:3000` canonicals while
+ * sitemap/RSS (which revalidate hourly) advertised the right origin.
+ * Hourly ISR revalidation lets every prerendered page self-heal from
+ * the runtime env — the same contract the feeds already follow.
+ */
+export const revalidate = 3600;
+
 interface RouteParams {
   slug: string;
 }
