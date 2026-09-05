@@ -7,9 +7,10 @@
  * the edge middleware can import from `@devlog/auth/tokens` and
  * avoid pulling in better-sqlite3 + drizzle-orm.
  *
- * Cookie name: `devlog_session`. Format: `<userId>.<hmac>`. The
- * HMAC is SHA-256 of `userId` keyed by `BETTER_AUTH_SECRET`. Tokens
- * are valid for 30 days.
+ * Cookie name: `devlog_session`. Format (token v2, R-39): `<userId>.<iat-seconds>.<hmac(userId.iat)>`. The
+ * HMAC is SHA-256 keyed by `BETTER_AUTH_SECRET`; `verifySessionToken`
+ * (in `./tokens`) enforces the 30-day TTL server-side and rejects legacy
+ * 2-part tokens, so old sessions force a re-login.
  *
  * Server-only.
  */
