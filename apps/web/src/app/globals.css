@@ -2,7 +2,11 @@
  * apps/web/src/app/globals.css — the full /dev/log design system.
  *
  * Ports landing_page_mockup.html lines 14-578 verbatim into Tailwind v4's
- * @layer components structure. The @theme block maps the raw color tokens
+ * @layer components structure (R-98, audit H-44: the component classes are
+ * wrapped in `@layer components` for real — unlayered styles beat layered
+ * ones, so an unlayered `display` on a component class would defeat the
+ * responsive display utilities, e.g. the GitHub pill's `hidden sm:inline-flex`).
+ * The @theme block maps the raw color tokens
  * (which live in @devlog/config/tailwind/base.css) to Tailwind utility
  * classes (--color-bg → bg-bg, --color-accent → text-accent, etc.).
  *
@@ -105,6 +109,17 @@ body.theme-anim *::after {
 .font-mono {
   font-family: var(--font-mono);
 }
+
+/* ============================================================================
+ * COMPONENT CLASSES — mockup lines 118-578, ported 1:1 (FR-1..FR-12).
+ * Wrapped in @layer components (R-98, audit H-44): Tailwind v4 emits
+ * utilities in `@layer utilities`, and per CSS cascade layers unlayered
+ * styles beat layered ones — so these component classes MUST live in the
+ * layer, or responsive display utilities like `hidden` / `sm:inline-flex` /
+ * `md:inline-block` (used by github-pill.tsx and archive-item.tsx) are
+ * silently overridden. Pinned by css-layer-scan.test.ts.
+ * ============================================================================ */
+@layer components {
 
 /* ============================================================================
  * PROGRESS BAR — mockup lines 107-116 (FR-1)
@@ -777,8 +792,12 @@ body.theme-anim *::after {
   }
 }
 
+} /* end @layer components (R-98) */
+
 /* ============================================================================
  * REDUCED MOTION — mockup lines 573-578
+ * (kept OUTSIDE @layer components: an unlayered `!important` reset is the
+ * strongest possible guard — it must beat every animation in every layer.)
  * ============================================================================ */
 @media (prefers-reduced-motion: reduce) {
   *,
