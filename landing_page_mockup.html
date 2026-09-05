@@ -697,8 +697,12 @@ body.theme-anim *::after {
 </section>
 
 <!-- Marquee -->
+<!-- R-99 (audit M-58): marquee text uses --fg-dim (not --muted): the hero's cyan
+     glow composites the effective background to ~#113b40, where --muted
+     (#8a8275) measures 3.2:1 — below the 4.5:1 WCAG AA floor. --fg-dim
+     (#c9c1ad) holds ≥6.8:1 in the same conditions. -->
 <div class="py-5 border-y marquee-wrap" style="border-color: var(--border); background: var(--bg-elev);">
-  <div class="marquee font-mono text-sm uppercase tracking-widest" style="color: var(--muted);">
+  <div class="marquee font-mono text-sm uppercase tracking-widest" style="color: var(--fg-dim);">
     <span>JavaScript</span><span>·</span><span>TypeScript</span><span>·</span><span>Rust</span><span>·</span><span>Go</span><span>·</span><span>WebAssembly</span><span>·</span><span>PostgreSQL</span><span>·</span><span>Redis</span><span>·</span><span>Docker</span><span>·</span><span>Kubernetes</span><span>·</span><span>Linux</span><span>·</span><span>NeoVim</span><span>·</span>
     <span>JavaScript</span><span>·</span><span>TypeScript</span><span>·</span><span>Rust</span><span>·</span><span>Go</span><span>·</span><span>WebAssembly</span><span>·</span><span>PostgreSQL</span><span>·</span><span>Redis</span><span>·</span><span>Docker</span><span>·</span><span>Kubernetes</span><span>·</span><span>Linux</span><span>·</span><span>NeoVim</span><span>·</span>
   </div>
