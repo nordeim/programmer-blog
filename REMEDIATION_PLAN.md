@@ -1294,3 +1294,44 @@ Trigger: operator-requested fourth tiered review + live E2E re-verification. Fin
 - **programmer-blog_SKILL.md:** front-matter `project_state` + header note + §2.3 + §11 counts 405 → **459 (355 web / 41 db / 37 auth / 21 types / 5 email)**; state line → Passes 4–8 (R-37..R-97) complete; §20.2 `Env` interface gains `DEV_AUTHOR_PASSWORD?: string`.
 - **README.md:** Audit Status gains the Pass 8 paragraph (C-42/H-43 summary + remediation pointer); audit posture line reverts to 0 after R-95.
 - **Acceptance:** every changed claim spot-checked against `package.json` / live test run (evidence in the Pass 8 Addendum verification ledger).
+
+---
+
+## 15. Pass 9 (2026-09-05) — Tiered review + live E2E remediation (R-98..R-101)
+
+**Trigger:** operator-requested fifth tiered review + live E2E of the Pass 8 remediated codebase. Findings, evidence and the live E2E matrix live in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 9 Addendum" (H-44, M-58..M-59, L-58..L-59, I-20..I-22).
+
+**Method:** TDD per `skills/tdd` + `skills/tdd-workflow` — every code task starts with a RED test run against the current tree, then the GREEN implementation, then REFACTOR, then the acceptance gate.
+
+### Pre-execution validation of this plan against the codebase
+
+| Assumption | Verified against |
+|---|---|
+| `globals.css` has zero `@layer {` blocks while its header claims "@layer components structure" | `grep -c '@layer' globals.css` → only the docstring ✅ |
+| Compiled CSS contains `.hidden` + `@media(min-width:40rem) .sm\:inline-flex` but live `.stat-pill` computes `display:flex` at 390px (unlayered beats `@layer utilities`) | live bundle `26-6-4up5cn8j.css` + browser `getComputedStyle` ✅ |
+| nav scrollWidth 415 > clientWidth 390 at 390px; cyber theme button right edge 411px (clipped, unreachable) | agent-browser measurement on live site ✅ |
+| `.tag` pairs with `hidden md:inline-block` in `archive-item.tsx`; `.tag` sets `display:inline-block` unlayered | source read ✅ |
+| Only `.stat-pill` and `.tag` pair display-setting component classes with responsive display utilities (blast radius) | grep over all component-class usages ✅ |
+| Marquee inline color is `var(--muted)` in BOTH `landing_page_mockup.html:701` and `marquee.tsx:31` | file reads ✅ |
+| Live contrast 3.2:1 (fg `#8a8275` on composited `#113b40`) — hero cyan glow over `--bg-elev` | Lighthouse axe detail + token recomputation ✅ |
+| `admin/actions.ts:293` logs `'oderateComment] DB error'` (typo) | source read ✅ |
+| `auth/index.ts:10-12` header docstring documents v1 `<userId>.<hmac>` format | source read ✅ |
+| 464 tests green; five-stage `pnpm check` green (the no-regression floor) | executed this session ✅ |
+
+### Tasks
+
+| Task | Finding(s) | Fix (RED → GREEN → REFACTOR) | Status |
+|---|---|---|---|
+| R-98 | H-44 | RED: new `apps/web/src/css-layer-scan.test.ts` — parse `globals.css` and assert (a) the file declares `@layer components {`, (b) the display-setting component classes (`.stat-pill`, `.tag`, `.btn-primary`, `.btn-secondary`, `.theme-btn`) are defined INSIDE the layer block, (c) no unlayered top-level rule for those selectors survives. GREEN: wrap the component-class region in `@layer components { … }` (keep `@theme`, raw-token `@media` tweaks, and reduced-motion blocks as-is). REFACTOR: header comment now matches reality. | ✅ Complete |
+| R-99 | M-58 | Mockup-first: `landing_page_mockup.html` marquee inline color `var(--muted)` → `var(--fg-dim)` (explicit, documented a11y design decision), then port the same one-line change to `marquee.tsx`. RED: `marquee.test.tsx` render assertion — the `.marquee` element carries `color: var(--fg-dim)` (fails against the current tree). GREEN: apply the change. REFACTOR: none. | ✅ Complete |
+| R-100 | L-59 (+ L-58 retracted) | L-58 withdrawn at byte level (`od -c` proves the tag is `'[moderateComment] DB error'` — the sighting was a terminal misread, the I-17 failure mode; retracted per the no-inflated-findings rule). Ships `admin-log-tag-scan.test.ts` as a prevention pin only (green against the correct tree). L-59 (byte-verified): `auth/index.ts` header re-synced to the v2 `<userId>.<iat-seconds>.<hmac(userId.iat)>` format with the server-side 30-day TTL + legacy-rejection note (comment-only, no RED possible per R-69 precedent). | ✅ Complete |
+| R-101 | M-59 + doc drift | Doc pass: README — Pass 9 paragraph, audit posture, test count 464→465+ (post-R-98..R-100), live-E2E status; AGENTS.md — CSS layer contract (`@layer components` is now load-bearing), marquee token note; CLAUDE.md — same Tailwind-layer note; SKILL.md — §8 accessibility claim corrected to AA-with-exceptions, perf budget qualified (local-build metric), §2.3 test counts, front-matter state line, new lessons. | ✅ Complete |
+
+### Acceptance gate
+
+`pnpm check` (five stages) green · new scan/render tests green · live re-verification after deploy: 390px viewport — GitHub pill hidden <640px, cyber theme button fully visible/reachable, no horizontal scroll.
+
+### Operator actions required after this pass (not code)
+
+1. **Cloudflare zone:** set Browser Cache TTL to "Respect Existing Headers" (or ≤3600s) so browsers honor the origin's `max-age=3600` on `robots.txt` (I-20).
+2. **Standing from Passes 6–8:** rotate/scope the committed SSH key; keep the deferred backlog (nonce CSP, session revocation, `next/image` allowlist, Playwright in-repo, R-30 coverage) visible in planning.

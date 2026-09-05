@@ -1271,3 +1271,99 @@ Every Pass 3–7 fix was re-verified against the running code (459/459 tests gre
 Surfaces re-audited clean (verified): all Server Actions auth-before-mutation + Zod boundaries · edge `proxy.ts` + `safeNext` (R-60 holds) · session token v2 TTL + constant-time compare · purpose-tagged transaction tokens (R-80 holds: confirm 7-day TTL, manage long-lived, legacy v1 manage-only) · rate limiter bounded + rightmost-XFF keys (R-59/R-76 hold) · `instr()` search + epoch-seconds binding (R-66/R-32 hold) · CSV escaping + tab/CR formula guard (R-45/R-84 hold) · JSON-LD `<`-escaping (R-44 holds) · `env.ts` boot-throw (R-61/R-73 hold — re-verified by the local build failing fast on empty secrets) · seed prod-password guard (R-57/R-92 hold) · `.env.example` placeholder-clean (R-72 holds) · `unsubcribe` GET is write-free (R-74 holds) · robots cache policy (R-75 holds at origin).
 
 **Pass 8 sign-off:** C-42 is closed at the source (R-95 removes the only vulnerable dependency subtree rather than papering over it with inert pins); H-43 is closed with a behavioral regression pin (R-96); documentation is re-synced to the five-stage gate and the 459-test baseline (R-97). The `pnpm check` gate is green end-to-end after remediation (verified locally, networked registry).
+
+# Pass 9 Addendum (2026-09-05) — Tiered review + security audit + live E2E of the Pass 8 remediated codebase
+
+**Mode:** `code-review-and-audit` deep mode (Phase 1 lint/types + Phase 2 security via the skill's Native CLI Fallback Protocol + Phase 3 12-category quality checklist + Phase 4 tests + Phase 5 Lighthouse + Phase 6 expert review) **plus a fresh live browser E2E** against `https://programmer-blog.jesspete.shop/`.
+
+**Baseline re-verified before auditing (all green):** `pnpm check-types` 5/5 · `pnpm lint` 0/0 · `pnpm test` **464 tests (355 web / 41 db / 40 auth / 21 types / 7 email)** — matching the documented baseline exactly · `pnpm audit --prod` **0 vulnerabilities** · `pnpm build` **27 routes** + postbuild static copy · full `pnpm check` gate green end-to-end.
+
+## Live E2E evidence matrix (2026-09-05)
+
+40 HTTP contract checks (curl) + interactive browser flows (agent-browser, desktop 1280px + mobile 390px):
+
+| # | Check | Result |
+|---|---|---|
+| 1-9 | Core routes: `/`, `/archive`, `/archive/page/2`, `/snippets`, `/preferences`, `/unsubscribe`, `/admin/login` 200; `/admin` → 30x → `/admin/login` | ✅ 9/9 |
+| 10-15 | Post routes: sitemap-listed slug 200, single `<h1>`, prod canonical, bogus slug 404 | ✅ 6/6 |
+| 16-24 | Feeds: rss 200 + 9 `<item>` + prod URLs; sitemap 200 + ≥17 `<loc>` + prod URLs; robots 200 + prod `Sitemap:` + `s-maxage=3600` (R-75 holds at origin) | ✅ 8/9 (see I-20: CF rewrites browser `max-age` to 14400) |
+| 25-26 | APIs: `/api/github-stats` 200; `/api/confirm` 400 without token | ✅ 2/2 |
+| 27-29 | Static assets: CSS/JS chunks 200 (R-33 postbuild copy deployed) | ✅ 3/3 |
+| 30-38 | Security headers: CSP incl. `base-uri 'self'; object-src 'none'; form-action 'self'` (R-81 holds), XFO DENY, XCTO, Referrer-Policy, Permissions-Policy, HSTS | ✅ 9/9 |
+| 39-40 | Login hygiene: no dev password / credentials hint in prod HTML (R-37 holds); unsubscribe GET renders form without write (R-74 holds) | ✅ 2/2 |
+
+**Browser flows (zero console errors throughout):** theme toggle dark→light→cyber ✅ · typewriter animation ✅ · GitHub pill live stats (97.4k stars) ✅ · subscribe form invalid-email feedback ✅ · archive tag filter (`?tag=react` → 1 post) ✅ · search `?q=database` → 1 post ✅ · wildcard search `%undefined%` → clean 0 results, no 500 (R-66 holds) ✅ · post page canonical + comment form posts successfully ("thanks") ✅ · login wrong-password → generic "Invalid email or password", no redirect to `?next=https://evil.example.com` (R-60 holds) ✅ · snippets index (5) + snippet page single `<h1>` + copy button ✅ · 404 page "command not found" ✅ · mobile 390px: no horizontal scroll (R-53 holds) — **except the nav finding H-44 below**.
+
+## 🔴 Critical
+
+None found. The C-31..C-42 remediation set is verified holding live.
+
+## 🟠 High
+
+**H-44 — CSS cascade-layer regression: unlayered component classes defeat responsive display utilities; mobile nav controls clipped and unreachable**
+- **Location:** `apps/web/src/app/globals.css` (entire component-class region is unlayered); `apps/web/src/features/landing/github-pill.tsx:29` (`className="stat-pill hidden sm:inline-flex"`); `apps/web/src/components/archive-item.tsx:40` (`className="tag hidden md:inline-block"`).
+- **Evidence (live, 390px viewport):** `document.querySelector('nav').scrollWidth` = **415px vs clientWidth 390px**; the cyber theme button's right edge = **411px** — clipped past the viewport with no horizontal scroll to reach it (page `scrollWidth` = 390). The `.stat-pill` computed `display` = `flex` (should be `none` below 640px). The compiled CSS bundle **contains** `.hidden{display:none}` and `@media (min-width:40rem){.sm\:inline-flex{…}}` — but `.stat-pill{display:inline-flex}` is **unlayered** while Tailwind v4 emits utilities inside `@layer utilities`; per CSS cascade layers, unlayered styles beat layered styles at equal specificity, so the utilities lose regardless of order. `globals.css`'s own header comment claims "Tailwind v4's **@layer components structure**" — the file contains **zero `@layer` blocks**.
+- **Impact:** on every view <640px the GitHub pill renders when the mockup hides it, pushing the third theme button off-screen — **the cyber theme is unreachable on mobile** (also a WCAG 2.1.1 keyboard/pointer reachability failure). Same mechanism leaves archive-item tags visible below `md` against the documented intent. The mockup itself behaves correctly (its CDN utilities load after its style block and win by order), so the port silently diverges from the source of truth.
+- **Fix:** **R-98** — wrap the component-class region of `globals.css` in `@layer components { … }` (matching the file's documented structure and Tailwind v4's layer order `theme, base, components, utilities`); pin with a source-scan test; blast-radius-verified (only `.stat-pill`/`.tag` pair display-setting component classes with responsive display utilities).
+- **Confidence:** Verified (live browser measurement + compiled-CSS inspection + local build reproduction).
+
+## 🟡 Medium
+
+**M-58 — Marquee text contrast 3.2:1 fails WCAG AA; SKILL's "WCAG AAA" claim overstated**
+- **Location:** `apps/web/src/features/landing/marquee.tsx:31` (`style={{ color: 'var(--muted)' }}` → `#8a8275` in dark theme); `landing_page_mockup.html:701` (same inline style — mockup-first change required).
+- **Evidence (live Lighthouse 13, accessibility audit):** "insufficient color contrast of 3.2 (foreground `#8a8275`, background `#113b40`, 14px normal)" for the marquee skill words (TYPESCRIPT, RUST, GO, WEBASSEMBLY, POSTGRESQL…). The effective background is `--bg-elev` tinted by the hero's cyan glow (`--accent-2-rgb` ≈ 0.22 alpha composites to `#113b40`), below the 4.5:1 AA threshold. `programmer-blog_SKILL.md` §8 titles itself "Accessibility (**WCAG AAA**) Implementation" — the live site fails AA on this surface.
+- **Impact:** assistive-technology and low-vision users get sub-contrast text on a visible content surface; the docs overclaim the a11y posture.
+- **Fix:** **R-99** — mockup-first: change the marquee color to `var(--fg-dim)` (6.8:1 worst case) in `landing_page_mockup.html` + the port; render-pinned by a component test; SKILL §8 corrected to an honest AA claim with the remaining known exceptions.
+- **Confidence:** Verified (axe-core via Lighthouse on the live URL; contrast recomputed from tokens).
+
+**M-59 — Live landing Lighthouse Performance 78 vs the documented "Lighthouse ≥95 budget"**
+- **Location:** `AGENTS.md` ("Lighthouse ≥95 budget"), `CLAUDE.md`, `programmer-blog_SKILL.md` §1.3/§1.5.
+- **Evidence (live Lighthouse 13, cold run):** Performance **78** (FCP 1.7s, LCP 3.9s, TBT 380ms, CLS 0.054, Speed Index 2.2s), main-thread work 3.1s, unused JS ~27KiB; Accessibility 96 (M-58), Best Practices 92, SEO 100.
+- **Impact:** the ≥95 claim is not true of the deployed site as measured from a remote network — the budget as documented reads like a guarantee rather than a local-dev design constraint; risk of the same doc-vs-reality drift class as C-42/M-56.
+- **Fix:** **R-101** — qualify the claim in all three docs (≥95 measured against local builds on loopback; the deployed figure additionally carries hosting-region network latency); keep hydration-lean landing work in the deferred backlog.
+- **Confidence:** Verified (executed against the live URL; environment-dependence acknowledged).
+
+## 🟢 Low
+
+**L-58 — RETRACTED: `moderateComment` log tag is NOT corrupted** *(finding withdrawn at byte level during remediation)*
+- **Original claim:** `apps/web/src/features/admin/actions.ts:286` logs `'oderateComment] DB error'` (missing `'[m`).
+- **Byte-level verification (`od -c`)** during R-100 showed the line is actually `console.error('[moderateComment] DB error', e);` — correct. The initial sighting was a terminal-rendering misread (the substring `oderateComment` inside `moderateComment` invited the conclusion), the exact failure mode recorded as I-17 in Pass 8. Per the no-inflated-findings rule the finding is withdrawn rather than silently fixed.
+- **What ships instead:** the intended scan still ships as a **prevention pin** (`apps/web/src/admin-log-tag-scan.test.ts` — every `console.*` tag in `features/*/actions.ts` must start with `[`), so a genuinely corrupted tag cannot land later. No production code change was made for L-58.
+- **Confidence:** Verified (retracted).
+
+**L-59 — `packages/auth/src/index.ts` header docstring still documents the v1 token format**
+- **Location:** `packages/auth/src/index.ts:10-12` — "Format: `<userId>.<hmac>`. … Tokens are valid for 30 days." R-39 (Pass 4) shipped v2 `<userId>.<iat>.<hmac>` with server-side TTL; the module that implements it describes the pre-R-39 format.
+- **Impact:** an agent reading the header (and not `tokens.ts`) may "simplify" back to 2-part tokens — the exact regression R-39's rejection of legacy tokens is designed to prevent.
+- **Fix:** **R-100** — docstring re-sync to the v2 format (comment-only; no RED test possible, per the R-69 precedent).
+- **Confidence:** Verified.
+
+## ⚪ Informational
+
+- **I-20 — Cloudflare Browser Cache TTL rewrites `robots.txt` browser `max-age` to 14400s:** live headers show `cache-control: public, max-age=14400, s-maxage=3600` — the origin sends `max-age=3600, s-maxage=3600` (R-75 verified at origin), the CF zone's Browser Cache TTL (4h) overrides the browser-facing directive. Self-heal-to-edge (the M-49 fix) is unaffected; only browser-side staleness extends to ≤4h. **Operator action:** set CF Browser Cache TTL to "Respect Existing Headers" (or ≤3600) — no code change.
+- **I-21 — deferred backlog unchanged (standing):** nonce-based CSP `script-src`, session revocation (`tokenVersion` / reserved `sessions` table), `next/image` `remotePatterns` host allowlist, in-repo Playwright suite (MEP Phase 8+), R-30 coverage 65% → 80/75/80/80. Re-confirmed open; none block release.
+- **I-22 — automated-scanner false-positive triage (Pass 9):** the Phase-3 checklist runner flagged 31 "critical/high" items — all disproven on manual verification (test fixtures with fake tokens, the documented dev default used precisely to assert its rejection, R-44-sanitized JSON-LD, a `Number.parseInt(raw, 10)` false positive, a static theme-sync script). Consistent with Passes 7–8: no automated finding in project code survived expert review; the substantive Pass 9 findings came from live E2E + expert review. Methodology reminder standing.
+
+## Remediation (§15 of REMEDIATION_PLAN.md)
+
+| ID | Finding | Fix | Verification |
+|---|---|---|---|
+| **R-98** | H-44 | Wrap `globals.css` component classes in `@layer components` (documented structure); RED source-scan test `css-layer-scan.test.ts` (component classes must be layer-wrapped; `.stat-pill`/`.tag` must not appear unlayered); mockup parity note | Build CSS places utilities after components; live 390px check: pill hidden, cyber button reachable |
+| **R-99** | M-58 | Marquee color `var(--muted)` → `var(--fg-dim)` in `landing_page_mockup.html` (mockup-first) + `marquee.tsx`; render test pins the computed color | Render test green; worst-case contrast ≥4.5:1 (recomputed from tokens) |
+| **R-100** | L-59 (+ L-58 retracted) | L-58 withdrawn at byte level (`od -c` — tag was already correct); ships the `admin-log-tag-scan.test.ts` prevention pin instead of a fix. L-59: re-sync the auth/index.ts header docstring to token v2 (comment-only, per the R-69 no-RED precedent) | Scan pin green; auth suite green; full suite green |
+| **R-101** | M-59 + doc sync | README Pass 9 paragraph + audit posture; AGENTS/CLAUDE/SKILL: CSS-layer contract note, marquee contrast note, perf-budget qualification, SKILL §8 AA claim correction, test-count bump | Manual review against the remediated tree + this addendum |
+
+## Pass 9 verification ledger (evidence-based sign-off)
+
+| Claim | How verified | Result |
+|---|---|---|
+| 464-test baseline | `pnpm test` executed locally | ✅ 464 (355/41/40/21/7) |
+| Five-stage gate | `pnpm check` executed end-to-end | ✅ green |
+| 0 vulnerabilities | `pnpm audit --prod` | ✅ 0 |
+| 27 routes | `pnpm build` route table | ✅ 27 |
+| R-31..R-97 fixes hold live | 40-check HTTP matrix + browser flows (above) | ✅ all hold (1 informational: I-20) |
+| H-44 | Live 390px measurement + compiled CSS + local repro | ✅ Verified |
+| M-58 | Live Lighthouse + token math | ✅ Verified |
+| M-59 | Live Lighthouse | ✅ Verified |
+| L-58/L-59 | Source inspection | ✅ Verified |
+
+**Pass 9 sign-off:** no Critical findings; one High (H-44 — live UX/accessibility regression against the mockup contract), two Medium (M-58 a11y contrast, M-59 doc-vs-live perf budget), one Low (L-59 stale auth docstring), and one finding retracted at byte level during remediation (L-58 — kept as a prevention pin only). Remediated in the same session via R-98..R-101 (TDD; see REMEDIATION_PLAN.md §15). The `pnpm check` gate is green after remediation.
