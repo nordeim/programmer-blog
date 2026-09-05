@@ -2,8 +2,8 @@
 IMPORTANT: File is read fresh for every conversation. Be brief and practical.
 project_type: nextjs-monorepo
 framework: next.js-16-app-router
-last_updated: 2026-09-04 (Pass 8)
-# Revalidated 2026-09-04 — Pass 8 remediation (R-72..R-97): placeholder-only env templates (C-41), empty-env=unset normalization (H-40), POST-only unsubscribe (H-42), purpose-tagged TTL'd transaction tokens, robots cache alignment, rightmost-XFF rate-limit keys, React 19 currentTarget fix, canonical overrides, CSP base-uri/object-src/form-action, unique post-tag index, react-email CLI removed + inert workspace overrides (C-42/R-95), dummy scrypt on unknown emails — timing-equalized signIn (H-43/R-96), five-stage gate doc sync (R-97)
+last_updated: 2026-09-05 (Pass 9)
+# Revalidated 2026-09-05 — Pass 9 remediation (R-98..R-101): `@layer components` is load-bearing in globals.css (H-44 — unlayered display rules kill `hidden`/`sm:inline-flex`/`md:inline-block`), marquee text `--fg-dim` for WCAG AA contrast on the glow-tinted background (M-58, mockup-first), Lighthouse ≥95 qualified as a local-build metric (M-59), auth header docstring re-synced to session token v2 (L-59)
 ---
 
 # `/dev/log` — Programmer Blog
@@ -33,7 +33,7 @@ Follow for all implementation tasks:
 - **Trunk-based, no PRs.** All commits to `main`. Atomic Conventional Commits with `Refs: FR-N` footer. No feature branches.
 - **TDD or it didn't happen.** Every line of production code is preceded by a failing test. Tests live next to source (`Component.test.tsx`).
 - **Edge-safe auth split.** `packages/auth/src/tokens.ts` is pure Web Crypto (`crypto.subtle`, `async`) so the `proxy.ts` Edge layer can import it without bundling Node-only deps.
-- **CSS-only animation.** No Framer Motion, no GSAP. All motion is `@keyframes` + `transition`. Lighthouse ≥95 is the design budget.
+- **CSS-only animation.** No Framer Motion, no GSAP. All motion is `@keyframes` + `transition`. Lighthouse ≥95 is the design budget — measured against **local builds on loopback** (R-101/M-59: live remote runs include hosting-region latency and read lower; don't treat a remote live score as the budget metric).
 - **SQLite is the only DB.** better-sqlite3, single file at `apps/web/devlog.db`. No Postgres, no Redis. Drizzle handles migrations (`pnpm db:generate` → `pnpm db:migrate`).
 
 ---
@@ -81,7 +81,7 @@ Follow for all implementation tasks:
 
 - **No `tailwind.config.ts`.** All tokens live in `@theme` blocks in `packages/config/tailwind/base.css` and `apps/web/src/app/globals.css`.
 - **Theme switching via `[data-theme="dark|light|cyber"]`** on `<html>`. The mockup defines 3 themes; do not add a 4th.
-- **Component classes** (`.btn-primary`, `.article-card`, `.code-window`, etc.) live in `globals.css` under `@layer components` — port verbatim from the mockup. Do not re-implement with utility classes.
+- **Component classes** (`.btn-primary`, `.article-card`, `.code-window`, etc.) live in `globals.css` inside `@layer components` — port verbatim from the mockup. Do not re-implement with utility classes. The layer wrapper is **load-bearing** (R-98, audit H-44): unlayered CSS beats `@layer utilities`, so an unlayered `display` on a component class silently disables responsive display utilities (`hidden`, `sm:inline-flex`, `md:inline-block`) paired with it. `css-layer-scan.test.ts` pins the contract.
 - **No arbitrary literal values** like `text-[#abc123]`. Arbitrary `var()` references (`bg-[var(--bg-elev)]`, `text-[var(--muted)]`) ARE the established as-built pattern — they reference `@theme` tokens — and are allowed (Pass 6 doc sync, I-11).
 - **Mobile-first responsive.** `md:` / `lg:` modifiers build up from base mobile styles.
 - **`prefers-reduced-motion`** is enforced in `globals.css` — every animation must respect it.
@@ -203,7 +203,7 @@ pnpm --filter @devlog/web check-types
 - **Component** — React Testing Library + jsdom (`apps/web/src/components/tag.test.tsx`).
 - **Route** — Server Component render tests (`apps/web/src/app/(public)/page.test.tsx`).
 - **API** — Route handler integration (`apps/web/src/app/api/confirm/route.test.ts`).
-- **E2E** — Not in scope for Phase 1–7. Will be added via Playwright in a future phase.
+- **E2E** — Manual live E2E (browser + HTTP contract checks) verified each remediation pass, 3–9; automated Playwright E2E remains deferred (Phase 8+ backlog).
 
 ### Test Commands
 
@@ -396,7 +396,7 @@ Packages (@devlog/db, @devlog/auth, @devlog/email, @devlog/types, @devlog/config
 - **Adding a 4th theme.** The mockup defines dark/light/cyber — the design budget is closed.
 - **Importing `drizzle-orm` in Layer 1 (app) or Layer 2 (features) beyond operators.** `drizzle-orm` operators (`eq`, `and`, `desc`, `count`) alongside `@devlog/db` queries are the as-built R-46 pattern — allowed in app/features. Still forbidden outside `packages/db` + `lib`: `drizzle-orm/sqlite-core` table definitions, `better-sqlite3`, and raw client opens; any `drizzle-orm` import in `domain/`.
 - **`pnpm db:push` in production.** Always `db:generate` → review SQL → `db:migrate`.
-- **Framer Motion / GSAP.** CSS-only animation is the rule. Lighthouse ≥95 is the design budget.
+- **Framer Motion / GSAP.** CSS-only animation is the rule. Lighthouse ≥95 is the design budget (local-build metric — see Pass 9, M-59).
 - **Arbitrary Tailwind values (`text-[#abc]`).** Use the design token or extend `@theme`.
 - **Skipping the failing test.** TDD order is non-negotiable: RED → GREEN → REFACTOR.
 - **Exporting non-async values from `'use server'` files.** Review-blocking since C-37 (all six mutations 500-ed in production). The scan test fails the suite.

@@ -5,7 +5,7 @@
 [![TypeScript 5.9](https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS v4](https://img.shields.io/badge/Tailwind-v4-38bdf8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![pnpm](https://img.shields.io/badge/pnpm-9.15-f69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
-[![Tests: 464](https://img.shields.io/badge/tests-464-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
+[![Tests: 476](https://img.shields.io/badge/tests-476-6ead2a?logo=vitest&logoColor=white)](https://vitest.dev/)
 [![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red)](#license)
 
 > Notes from a programmer's desk — on code, systems, and the strange joy of debugging at 2am.
@@ -73,6 +73,8 @@ Current audit posture: **0 vulnerabilities** in `pnpm audit --prod` — 0 critic
 **Pass 7 (2026-09-04, tiered review + security audit + live E2E):** the third full `code-review-and-audit` deep pass plus a fresh browser E2E verified every Pass 3–6 fix still holds, then found **C-41** — the tracked `.env.local.example` file carried the production-faithful secret set (session/token HMAC secrets, a filled author password, the real deployment host) under a `.example` name (placeholders now; mandatory operator rotation recorded) — and **H-40**, where present-but-empty env vars (`RESEND_API_KEY=` from the documented quick start) crashed every production build (fixed in R-73: empty = unset). Also fixed: the unsubscribe page performed its destructive DB write during the GET render, so email prefetchers could silently unsubscribe users (H-42 → POST-only via a `confirmUnsubscribe` Server Action); transaction tokens gained a purpose-tagged 7-day TTL on confirm links (M-54); the live `robots.txt` advertised a stale localhost sitemap URL from a 24h CDN cache pinned by the route's own `s-maxage=86400` (M-49 → hourly, live-verified via cache-bust A/B); rate-limit keys took the attacker-set first `X-Forwarded-For` entry (M-50 → rightmost hop); the subscribe form threw `TypeError: null currentTarget` after `await` on every success (M-51, React 19); `/archive` + `/snippets` inherited the homepage canonical (M-52); the hero mouse-glow was dead code attached to a `pointer-events: none` overlay (M-53); CSP gained `base-uri`/`object-src`/`form-action` (M-55); plus a unique post-tag index (L-45), `updatePost` invariants (L-46), a CSV tab/CR guard (L-47), query guards (L-48), a scoped comments-page query (L-49), site-relative `rssUrl` acceptance (L-50), email sandbox-key handling (L-51), a typewriter tab-visibility resume (L-52), Tailwind literal cleanup (L-53), and operator-hygiene fixes (L-54/L-55). Full findings and evidence in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 7 Addendum"; tasks in `REMEDIATION_PLAN.md` §13.
 
 **Pass 8 (2026-09-04, tiered review + security audit + live E2E re-verification):** the fourth full `code-review-and-audit` deep pass (networked registry this time) re-verified every Pass 3–7 fix live (30/30 HTTP contract checks, browser E2E flows, zero console errors) and found **C-42** — the `pnpm check` release gate was broken: `pnpm audit --prod` reported 41 vulnerabilities (2 critical / 15 high) all routed through a dead runtime dependency, the `react-email` preview CLI in `packages/email` (which dragged vulnerable `next@15.1.2` + esbuild/glob/@babel-core into the prod graph), while the `pnpm-workspace.yaml` overrides meant to pin that subtree were silently inert under pnpm 9.15.4 (workspace-level `overrides` require pnpm ≥10). Fixed in R-95: `react-email` removed from runtime deps (regression-pinned by a manifest scan test), the inert-override comment corrected, and the one still-required pin (`prismjs ^1.30.0`) restored to the pnpm-9-compatible `package.json#pnpm.overrides` — audit is **0 vulnerabilities** again. Also fixed: **H-43**, the sign-in handler skipped scrypt work for unknown emails so response timing distinguished valid author emails (R-96: dummy verification against a pre-generated constant hash on both rejection branches, TDD-pinned); plus doc re-sync R-97 (`CLAUDE.md`/`AGENTS.md` now document the five-stage gate, `programmer-blog_SKILL.md` counts corrected to the 464-test baseline and the `Env` interface gains `DEV_AUTHOR_PASSWORD`). Full findings and evidence in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 8 Addendum"; tasks in `REMEDIATION_PLAN.md` §14.
+
+**Pass 9 (2026-09-05, tiered review + security audit + live E2E re-verification):** the fifth full `code-review-and-audit` deep pass re-verified every Pass 3–8 fix live (40/40 HTTP contract checks after an informational, browser flows with zero console errors, `pnpm check` green) and found **H-44** — a CSS cascade-layer regression in the mockup port: the component classes in `globals.css` were unlayered (despite the header claiming "@layer components structure"), and per CSS cascade layers unlayered styles beat Tailwind's `@layer utilities` — so the GitHub pill's `hidden sm:inline-flex` and the archive tag's `hidden md:inline-block` were dead, the pill rendered on mobile, and the cyber theme button was clipped past the 390px viewport (unreachable — live-measured nav overflow 415px vs 390px). Fixed in R-98 by actually wrapping the component classes in `@layer components` (regression-pinned by a source scan). Also fixed: **M-58**, the marquee skill words measured 3.2:1 contrast against the hero-glow-tinted background (live Lighthouse accessibility failure; the SKILL's "WCAG AAA" claim overstated) — marquee color moved to `--fg-dim` (≥6.8:1) mockup-first (R-99); **M-59**, the live landing Lighthouse Performance is 78 (hosting-region network + hydration), so the "Lighthouse ≥95 budget" claim is now qualified as a local-build metric (R-101); and **L-59**, a stale v1 token-format docstring in `@devlog/auth` (R-100; a suspected log-tag corruption, L-58, was retracted at byte level and shipped as a prevention-pin scan instead). Full findings and evidence in `CODE_REVIEW_AUDIT_REPORT.md` "Pass 9 Addendum"; tasks in `REMEDIATION_PLAN.md` §15.
 
 ## Tech Stack
 
@@ -155,7 +157,7 @@ flowchart TB
 2. **TDD mandatory** — Red → Green → Refactor. No production code without a failing test first.
 3. **Trunk-based on `main`** — no feature branches, no PRs. Atomic Conventional Commits with `Refs: FR-N` footers.
 4. **Edge-safe auth split** — `@devlog/auth/tokens` is pure Web Crypto `crypto.subtle` (`async`, no `node:crypto`/`Buffer`) so `proxy.ts` Edge can import it.
-5. **CSS-only animation** — no Framer Motion, no GSAP. Lighthouse ≥95 is the design budget.
+5. **CSS-only animation** — no Framer Motion, no GSAP. Lighthouse ≥95 is the design budget (a **local-build metric**, R-101/M-59 — remote live runs additionally carry hosting-region network latency).
 6. **Zod at every boundary** — env vars, Server Action inputs, API bodies, form data.
 7. **`landing_page_mockup.html` is the source of truth** — `globals.css` is a 1:1 port. Modify the mockup first, then propagate to CSS.
 
@@ -240,7 +242,7 @@ pnpm check         # = check-types && lint && test:coverage && audit --prod && b
 |---|---|
 | `pnpm check-types` | `0 errors` across all 5 packages |
 | `pnpm lint` | `0 errors` (0 warnings) |
-| `pnpm test` | `464 tests passing` across all packages |
+| `pnpm test` | `476 tests passing` across all packages |
 | `pnpm build` | Standalone build at `apps/web/.next/standalone/` (27 routes) |
 | `pnpm dev` → http://localhost:3000 | Landing page with dark theme + typewriter + marquee |
 
@@ -256,7 +258,7 @@ bash start_server.sh          # from repo root (or ./start_server.sh)
 1. **Env** — creates/validates `.env.local` (absolute `DATABASE_PATH=/…/apps/web/devlog.db`, `BETTER_AUTH_SECRET`/`SIGNED_TOKEN_SECRET` ≥32 via `openssl rand -hex 32`, `NEXT_PUBLIC_SITE_URL`/`BETTER_AUTH_URL` → prod) and syncs `apps/web/.env.local` so `next build` bakes the prod URL.
 2. **Deps** — `pnpm install --frozen-lockfile`.
 3. **DB** — `pnpm db:migrate` + `pnpm db:seed` (9 posts / 12 tags; fail-fast if `DATABASE_PATH` missing — R-38).
-4. **Gate** — `pnpm check-types` + `pnpm lint` + `pnpm test` (464 tests, must be green).
+4. **Gate** — `pnpm check-types` + `pnpm lint` + `pnpm test` (476 tests, must be green).
 5. **Build** — `pnpm build` (`standalone` + `postbuild` static copy) with prod env exported.
 6. **Start** — kills prior `:3000` (`fuser`/`lsof`/`pkill`), then `bash -c 'set -a; . .env.local; nohup node apps/web/.next/standalone/apps/web/server.js > server.log 2>&1 & echo $! > server.pid'` (uses `bash` `set -a; .` — `dash`/`sh` `source` → `source: not found`).
 7. **Health check** — `GET /archive` 200 (9 essays, tags), `GET /posts/<slug>` 200 single `<h1>` + `canonical https://…`, `GET /rss.xml` 9 `<item>`, `GET /sitemap.xml` 17 `<loc> https://…`, `GET /robots.txt` `Sitemap: https://…`, `GET /admin` 307, `canonical` prod.
@@ -354,7 +356,7 @@ pnpm test:coverage              # Coverage report
 - **Component** — React Testing Library + jsdom (`apps/web/src/components/tag.test.tsx`).
 - **Route** — Server Component render tests (`apps/web/src/app/(public)/page.test.tsx`).
 - **API** — Route handler integration (`apps/web/src/app/api/confirm/route.test.ts`).
-- **E2E** — Manual live E2E (browser + HTTP contract checks) verified Passes 3–8 (C-31..C-42/H-39..H-43); automated Playwright E2E remains deferred as backlog (Phase 8+).
+- **E2E** — Manual live E2E (browser + HTTP contract checks) verified Passes 3–9 (C-31..C-42/H-39..H-44); automated Playwright E2E remains deferred as backlog (Phase 8+).
 
 ### TDD Flow
 
@@ -369,7 +371,7 @@ Every code change follows **Red → Green → Refactor**:
 
 - ✅ `pnpm check-types` — 0 errors across all 5 packages
 - ✅ `pnpm lint` — 0 errors, 0 warnings
-- ✅ `pnpm test` — 464 tests passing across all packages (355 web / 41 db / 40 auth / 21 types / 7 email)
+- ✅ `pnpm test` — 476 tests passing across all packages (367 web / 41 db / 40 auth / 21 types / 7 email)
 - ✅ `pnpm test:coverage` — ~65% lines vs staged regression thresholds (80% target tracked as R-30)
 - ✅ `pnpm build` — 27 routes (16.3.4), `postbuild` copies `.next/static` + `public/` into `.next/standalone/` (R-33) — `proxy.ts` Edge, Web Crypto, no `node:crypto` warning
 - ✅ `pnpm audit --prod` — **0 vulnerabilities** (re-verified after Pass 8 R-95 removed the dead `react-email` subtree; the one live pin is `prismjs ^1.30.0` via `package.json#pnpm.overrides` — note workspace-level `pnpm-workspace.yaml` overrides are inert on pnpm 9.15.4)
@@ -466,7 +468,7 @@ Full troubleshooting in `skills/how-to-git-push-using-ssh-wrapper/SKILL.md`.
 | 5. Subscribe + email | ✅ Complete | Server Action, Zod schema, sliding-window rate limiter, Resend integration |
 | 6. Auth + admin | ✅ Complete | `proxy.ts` (was `middleware.ts`), login page, admin dashboard, post editor |
 | 7. Admin (subscribers + comments + settings) | ✅ Complete | CSV export, comment moderation, settings form, RSS/sitemap/robots |
-| 8. Validation + hardening | 🚧 In progress | Passes 5–8 (R-48..R-97) complete, incl. live E2E and four full security audits; production checklist hardened — see the deploy steps above |
+| 8. Validation + hardening | 🚧 In progress | Passes 5–9 (R-48..R-101) complete, incl. live E2E and five full security audits; production checklist hardened — see the deploy steps above |
 
 **Overall progress:** ~90% of the MEP shipped. The remaining work is hardening, security notes, and E2E test coverage (Playwright, deferred).
 

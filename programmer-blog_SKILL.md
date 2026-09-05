@@ -7,10 +7,10 @@ description: >
   Resend + Vitest monorepo. Distilled from the completed Phases 1–7 of the Master
   Execution Plan (MEP) plus remediation Passes 1–8. Use this when extending, debugging,
   onboarding to, or replicating the /dev/log architecture.
-version: 1.1.0
+version: 1.2.0
 project: devlog
-last_updated: 2026-09-04
-project_state: 464 tests green (355 web + 41 db + 40 auth + 21 types + 7 email), 5 packages, Next 16.3.4 / drizzle-kit 0.31 / proxy.ts / Web Crypto, Phases 1–7 + remediation A-C + Passes 4–8 (R-37..R-97) complete
+last_updated: 2026-09-05
+project_state: 476 tests green (367 web + 41 db + 40 auth + 21 types + 7 email), 5 packages, Next 16.3.4 / drizzle-kit 0.31 / proxy.ts / Web Crypto, Phases 1–7 + remediation A-C + Passes 4–9 (R-37..R-101) complete
 tags:
   - documentation
   - knowledge-distillation
@@ -25,7 +25,7 @@ tags:
 
 # `/dev/log` — Programmer Blog Engineering Skill (SKILL.md)
 
-> **How to use this document:** This is the deep-dive codebase reference for `/dev/log`. Read §1–§3 before extending any feature. Read §9 + §10 when debugging. Read §11 before pushing. Read §19 + §20 when authoring or modifying design tokens / TypeScript types. All claims are verified against the actual codebase as of **2026-09-04** (Next 16.3.4 / drizzle-kit 0.31 / `proxy.ts` / Web Crypto `crypto.subtle` / `pnpm db:setup`, 464 tests, Pass 8 audit remediation R-95..R-97 complete).
+> **How to use this document:** This is the deep-dive codebase reference for `/dev/log`. Read §1–§3 before extending any feature. Read §9 + §10 when debugging. Read §11 before pushing. Read §19 + §20 when authoring or modifying design tokens / TypeScript types. All claims are verified against the actual codebase as of **2026-09-05** (Next 16.3.4 / drizzle-kit 0.31 / `proxy.ts` / Web Crypto `crypto.subtle` / `pnpm db:setup`, 476 tests, Pass 9 audit remediation R-98..R-101 complete).
 
 ---
 
@@ -38,7 +38,7 @@ tags:
 5. [Component Architecture & Patterns](#5-component-architecture--patterns)
 6. [Custom Hooks Deep Dive](#6-custom-hooks-deep-dive)
 7. [Content Management & Data Ingestion](#7-content-management--data-ingestion)
-8. [Accessibility (WCAG AAA) Implementation](#8-accessibility-wcag-aaa-implementation)
+8. [Accessibility (WCAG AA) Implementation](#8-accessibility-wcag-aa-implementation)
 9. [Anti-Patterns & Common Bugs](#9-anti-patterns--common-bugs)
 10. [Debugging Guide](#10-debugging-guide)
 11. [Pre-Ship Checklist](#11-pre-ship-checklist)
@@ -154,7 +154,7 @@ Defined in [`apps/web/src/lib/env.ts`](./apps/web/src/lib/env.ts) via Zod. **Thr
 
 ### 2.3 Test Counts (2026-09-04, post-Pass-8 baseline)
 
-- **464 tests** across 5 packages (`355 web` + `41 db` + `40 auth` + `21 types` + `7 email`) after Pass 8. Pass 8 added 5: the email dependency-manifest scan (R-95) and three signIn timing-equalization pins (R-96).
+- **476 tests** across 5 packages (`367 web` + `41 db` + `40 auth` + `21 types` + `7 email`) after Pass 9. Pass 9 added 12: the CSS cascade-layer scan (R-98, 7 assertions), the marquee contrast pins (R-99, 3), and the log-tag prevention pin (R-100, 2 — L-58 was retracted at byte level; the scan ships as prevention only).
 - Pass 5 added 25 (the `'use server'` export scan, the revalidate contract scan, `getTagsInUse`/`getTagsForPosts` integration tests, archive tag rendering, `stripLeadingH1` units, unsubscribe copy tests). Pass 6 added 45: the layer-boundary scan, the server-action IP scan, the seed production-password guard, rate-limit eviction, `safeNext` open-redirect units + login-page pins, env boot-throw cases, token key-separation, snippet single-h1, schema scheme guards, search hardening integration tests.
 - All green. Updated on every commit via `turbo run test` (`pnpm check` = `check-types && lint && test:coverage && audit --prod && build`).
 
@@ -599,7 +599,9 @@ The seed script (as-built, Pass 6 doc sync I-9):
 
 ---
 
-## 8. Accessibility (WCAG AAA) Implementation
+## 8. Accessibility (WCAG AA) Implementation
+
+> **Honest scope (corrected in Pass 9, R-101/M-58):** the section was previously titled "WCAG AAA" — the live site does not meet AAA everywhere (AA requires 4.5:1, AAA 7:1; several muted/large-surface pairs sit between). The design system targets **WCAG 2.2 AA** as its baseline; the table below records measured ratios so exceptions stay visible. Known exception class: text over the hero's glow-tinted background (effective bg ≈ `#113b40` in dark theme) — the marquee previously failed AA there (3.2:1, audit M-58) and now uses `--fg-dim` (≥6.8:1).
 
 ### 8.1 Color Contrast
 
@@ -681,7 +683,7 @@ The smallest interactive elements:
 
 ### 8.7 Verified With
 
-- Lighthouse a11y score: 100 (target ≥95 maintained as design budget).
+- Lighthouse a11y score: 96 live (color-contrast on glow-tinted surfaces was the M-58 deduction; target ≥95 maintained as design budget).
 - Manual keyboard-only navigation through the landing page (Tab, Enter, `T` for theme).
 - `prefers-reduced-motion: reduce` emulation via DevTools → all animations skip, content still readable.
 
@@ -997,7 +999,7 @@ curl -s http://localhost:3000/posts/<slug> | grep canonical          # prod orig
 ```bash
 pnpm check-types   # 0 errors across 5 packages
 pnpm lint          # 0 errors (3 pre-existing warnings acceptable)
-pnpm test          # 464 tests passing (355 web + 41 db + 40 auth + 21 types + 7 email)
+pnpm test          # 476 tests passing (367 web + 41 db + 40 auth + 21 types + 7 email)
 pnpm build         # 34/34 pages → apps/web/.next/standalone/apps/web/server.js (proxy.ts, Web Crypto)
 
 # Or all at once (full gate):
@@ -2330,3 +2332,19 @@ GIT_SSH_COMMAND="skills/how-to-git-push-using-ssh-wrapper/scripts/ssh_git_wrappe
 ---
 
 *End of SKILL.md. This document was distilled following the `to-distill-project-into-skill` meta-skill (six-phase process) from the completed Phases 1–7 of the /dev/log Master Execution Plan. Verify against the codebase before extending — code drifts, docs shouldn't.*
+
+### 12.32 L32 — Unlayered CSS Beats `@layer utilities`: Component Classes Must Live in the Layer (Pass 9, H-44)
+
+**What happened:** the Pass 9 live E2E measured the nav at 415px on a 390px viewport: the GitHub pill rendered on mobile even though `github-pill.tsx` carries `hidden sm:inline-flex`, pushing the cyber theme button past the viewport edge — unreachable. The compiled bundle *contained* `.hidden{display:none}` and `@media(min-width:40rem){.sm\:inline-flex{…}}`, yet the pill computed `display:flex`.
+
+**Why it mattered:** the component classes in `globals.css` were unlayered while Tailwind v4 emits utilities inside `@layer utilities`. CSS cascade layers rank **unlayered styles above layered styles** at equal specificity — so `.stat-pill{display:inline-flex}` (unlayered) defeated `.hidden{display:none}` (layered) regardless of source order. The file header had claimed "@layer components structure" since the mockup port, but no `@layer` block existed; every responsive display utility paired with a component class (`.stat-pill`, `.tag`) was silently dead. The mockup never showed this because its Tailwind CDN `<style>` loads after its own rules — order-based precedence the port doesn't replicate.
+
+**How to avoid:** wrap the component-class region of `globals.css` in `@layer components { … }` (R-98) — the Tailwind-intended model (`theme, base, components, utilities`). Any NEW component class goes inside the layer; `css-layer-scan.test.ts` fails the suite if a display-setting component class appears unlayered. When a utility "doesn't work", check the cascade-layer ranking before suspecting the utility itself.
+
+### 12.33 L33 — Verify Findings Against Raw Bytes Before Reporting (Pass 9, the I-17 recurrence)
+
+**What happened:** the Pass 9 audit briefly reported L-58 — a "corrupted" log tag `console.error('oderateComment] DB error'` — from reading terminal output. The RED test for the fix passed immediately. Byte-level verification (`od -c`) showed the tag was already correct (`'[moderateComment] DB error'`): the substring `oderateComment` inside `moderateComment` invited the misread. The finding was retracted per the no-inflated-findings rule; the scan shipped as a prevention pin instead of a fix.
+
+**Why it mattered:** this was the *exact* failure mode recorded as I-17 in Pass 8 ("two apparent source corruptions were disproven at byte level"). Rendered tool output is a lossy projection of the file; a finding that survives only in rendered output is not a finding.
+
+**How to avoid:** before reporting any "corrupted source" claim, `od -c` / `hexdump -C` the exact bytes. And treat an unexpected RED-test pass as a signal the finding itself is wrong — never as a reason to weaken the test.

@@ -1,5 +1,5 @@
 # AGENTS.md
-<!-- last_updated: 2026-09-04 (Pass 8) — R-95..R-97: five-stage gate, inert workspace overrides, timing-equalized signIn -->
+<!-- last_updated: 2026-09-05 (Pass 9) — R-98..R-101: @layer components is load-bearing, marquee contrast fix (mockup-first), perf-budget qualification -->
 Compact instructions for AI coding agents working in `/dev/log`. Read before editing anything.
 
 ## TL;DR
@@ -85,6 +85,7 @@ A layer may only import from layers *below* it or from its own layer:
 - **No `tailwind.config.ts`.** All tokens live in `@theme` blocks in `packages/config/tailwind/base.css` and `apps/web/src/app/globals.css`.
 - **Themes via `[data-theme="dark|light|cyber"]`** on `<html>`. Do not add a 4th theme — the design budget is closed.
 - **Component classes** (`.btn-primary`, `.article-card`, `.code-window`, etc.) are in `globals.css` ported verbatim from the mockup. Do not re-implement with utilities.
+- **`@layer components` is load-bearing (R-98, audit H-44).** The component-class region of `globals.css` is wrapped in `@layer components` — unlayered CSS beats Tailwind's `@layer utilities` in the cascade, so an unlayered `display` on a component class silently kills responsive display utilities (`hidden`, `sm:inline-flex`, `md:inline-block`) wherever they're paired (GitHubPill, archive tags — the H-44 mobile-clipping regression). New component classes go INSIDE the layer; `css-layer-scan.test.ts` pins this.
 - **No arbitrary literal values** like `text-[#abc]` or `w-[137px]`. Design tokens as arbitrary `var()` values — `bg-[var(--bg-elev)]`, `text-[var(--muted)]` — ARE the established as-built pattern (they reference `@theme` tokens directly) and are allowed. Pass 6 doc sync (I-11).
 
 ## Next.js 16 Quirks
@@ -170,7 +171,7 @@ The wrapper is Paramiko-based and handles the `shlex.join()` quoting bug that br
 - Use `enum`, `namespace`, `as any`, default exports — all lint-blocked.
 - Add a 4th theme — design budget is closed (dark/light/cyber only).
 - Use Postgres, Redis, or any DB other than SQLite (single file at `apps/web/devlog.db`).
-- Use Framer Motion, GSAP, or any animation library — CSS-only `@keyframes` is the rule (Lighthouse ≥95 budget).
+- Use Framer Motion, GSAP, or any animation library — CSS-only `@keyframes` is the rule (Lighthouse ≥95 performance budget — a **local-build metric**, R-101/M-59: the deployed site additionally carries hosting-region network latency, so remote live runs read lower).
 - Use arbitrary Tailwind values (`text-[#abc]`) — use design tokens or extend `@theme`.
 - Use `pnpm db:push` in prod — always `db:generate` → review → `db:migrate`.
 - Skip the failing test — TDD order is non-negotiable.
@@ -198,3 +199,12 @@ Tiered review + live E2E (Pass 7) remediated C-41, H-40, H-42, M-49..M-55 and L-
 - **CSP now pins `base-uri 'self'; object-src 'none'; form-action 'self'`** (R-81).
 - Per-page **`alternates.canonical`** on `/archive`, `/archive/page/[page]`, `/snippets` (R-78) — new public pages must declare their own canonical.
 - **Hero mouse-glow tracks the parent hero section** (`useMouseGlow({ track: 'parent' })`, R-79) — a `pointer-events: none` overlay can never be an event target in a real browser.
+
+## Pass 9 doc sync (R-98..R-101, 2026-09-05)
+
+Tiered review + live E2E (Pass 9) remediated H-44, M-58..M-59, L-59 (L-58 retracted at byte level — see the Pass 9 Addendum's I-22 discipline note). Contract changes an agent must know:
+
+- **`globals.css` component classes live inside `@layer components`.** Unlayered rules beat `@layer utilities`, so component classes that set `display` MUST stay layered or every `hidden`/`sm:inline-flex`/`md:inline-block` utility paired with them dies (that was live bug H-44: the GitHub pill rendered on mobile and pushed the cyber theme button off the 390px viewport). `css-layer-scan.test.ts` pins it.
+- **Marquee text uses `--fg-dim`, not `--muted`** (R-99): the hero's cyan glow composites the effective marquee background to ~`#113b40`, where `--muted` (#8a8275) is 3.2:1 — below WCAG AA. The change is mockup-first (`landing_page_mockup.html` marquee block); `marquee.test.tsx` pins the port.
+- **The "Lighthouse ≥95" budget is a local-build metric** (R-101/M-59): the deployed site measures ~78 from a remote network (region latency + hydration). Don't "fix" performance by weakening the mockup port; qualify measurements instead.
+- **`@devlog/auth` session tokens are v2** `<userId>.<iat>.<hmac(userId.iat)>` — the `packages/auth/src/index.ts` header docstring now says so (was still documenting v1, L-59).
