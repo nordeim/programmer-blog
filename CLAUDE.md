@@ -2,8 +2,8 @@
 IMPORTANT: File is read fresh for every conversation. Be brief and practical.
 project_type: nextjs-monorepo
 framework: next.js-16-app-router
-last_updated: 2026-09-04 (Pass 7)
-# Revalidated 2026-09-04 — Pass 7 remediation (R-72..R-93): placeholder-only env templates (C-41), empty-env=unset normalization (H-40), POST-only unsubscribe (H-42), purpose-tagged TTL'd transaction tokens, robots cache alignment, rightmost-XFF rate-limit keys, React 19 currentTarget fix, canonical overrides, CSP base-uri/object-src/form-action, unique post-tag index
+last_updated: 2026-09-04 (Pass 8)
+# Revalidated 2026-09-04 — Pass 8 remediation (R-72..R-97): placeholder-only env templates (C-41), empty-env=unset normalization (H-40), POST-only unsubscribe (H-42), purpose-tagged TTL'd transaction tokens, robots cache alignment, rightmost-XFF rate-limit keys, React 19 currentTarget fix, canonical overrides, CSP base-uri/object-src/form-action, unique post-tag index, react-email CLI removed + inert workspace overrides (C-42/R-95), dummy scrypt on unknown emails — timing-equalized signIn (H-43/R-96), five-stage gate doc sync (R-97)
 ---
 
 # `/dev/log` — Programmer Blog
@@ -24,7 +24,7 @@ Follow for all implementation tasks:
 2. **PLAN** — Pick the MEP phase that owns this work; produce a RED→GREEN→REFACTOR checklist. Present the plan before coding.
 3. **VALIDATE** — Confirm the layer boundaries (§Project-Specific Standards below) are respected before writing the first test.
 4. **IMPLEMENT** — Write the failing test first, then the implementation, then refactor. Commit atomically with `Refs: FR-N` footer.
-5. **VERIFY** — `pnpm check-types && pnpm lint && pnpm test && pnpm build` must all be green before push. Never break `main`.
+5. **VERIFY** — `pnpm check` (`check-types && lint && test:coverage && audit --prod && build` — five stages, R-97) must be green before push. Never break `main`.
 6. **DELIVER** — Update the SKILL.md / PRD if the change introduces a new pattern, anti-pattern, or lesson.
 
 ### Project-Specific Principles
@@ -68,7 +68,7 @@ Follow for all implementation tasks:
 - **MDX content** — snippets live in `apps/web/content/snippets/*.mdx`; blog posts live in the DATABASE (seeded by `packages/db/src/seed.ts`, managed via admin CRUD) and render through `renderMDX`. There is no `content/posts/` directory (Pass 6 doc sync, I-11).
 - **`reactStrictMode: true`** — surfaces unsafe side effects in dev.
 - **Prerendered URL-bearing surfaces revalidate hourly (R-49/R-52).** `posts/[slug]` (generateStaticParams), `/admin/login`, and the robots/rss/sitemap routes export `revalidate = 3600` — absolute URLs in prerendered HTML bake the BUILD env's `NEXT_PUBLIC_SITE_URL`, so CI builds must run with it set; hourly revalidation self-heals fresh deploys from the runtime env. Pinned by `revalidate-contract.test.ts`.
-- **PPR (`experimental.cacheComponents`)** is intentionally disabled in Phase 1; enable in Phase 4 once the landing page is fully built.
+- **PPR (`experimental.cacheComponents`)** is intentionally disabled; enable in Phase 8+ once the landing page is fully built (deferred from the original Phase 4 target).
 
 ### React 19
 
@@ -169,8 +169,7 @@ pnpm dev           # Boots Next.js at http://localhost:3000
 |---|---|
 | `pnpm dev` | Start Next.js dev server (Turbopack) |
 | `pnpm build` | Production build → `apps/web/.next/standalone/apps/web/server.js` |
-| `pnpm start` | `node apps/web/.next/standalone/apps/web/server.js` (or `pnpm --filter @devlog/web start`; `start:next` = `next start`) |
-| `pnpm start` | Start production server (after build) |
+| `pnpm start` | `node apps/web/.next/standalone/apps/web/server.js` (or `pnpm --filter @devlog/web start`; `start:next` = `next start`) — production server (after build) |
 | `pnpm check-types` | `tsc --noEmit` across all 5 packages |
 | `pnpm lint` | ESLint 9 flat config across all packages |
 | `pnpm lint:fix` | Auto-fix lint issues |
@@ -393,9 +392,9 @@ Packages (@devlog/db, @devlog/auth, @devlog/email, @devlog/types, @devlog/config
 - **Reading `process.env.*` directly in feature/components.** Always go through `apps/web/src/lib/env.ts`.
 - **Using `enum` or `namespace`.** `erasableSyntaxOnly: true` forbids them. Use `as const` objects + union types.
 - **Using `as any`.** Lint blocks it. Use `unknown` + narrow, or `satisfies`.
-- **Default exports in `apps/web/src/**`.** Use named exports only.
+- **Default exports in `apps/web/src/**`.** Use named exports only — except the files Next.js requires to default-export (`page.tsx`, `layout.tsx`, `error.tsx`, `not-found.tsx`, `manifest.ts`, `opengraph-image.tsx`, route handlers).
 - **Adding a 4th theme.** The mockup defines dark/light/cyber — the design budget is closed.
-- **Importing `drizzle-orm` in Layer 1 (app) or Layer 2 (features).** Layer 4 (lib) is the only consumer.
+- **Importing `drizzle-orm` in Layer 1 (app) or Layer 2 (features) beyond operators.** `drizzle-orm` operators (`eq`, `and`, `desc`, `count`) alongside `@devlog/db` queries are the as-built R-46 pattern — allowed in app/features. Still forbidden outside `packages/db` + `lib`: `drizzle-orm/sqlite-core` table definitions, `better-sqlite3`, and raw client opens; any `drizzle-orm` import in `domain/`.
 - **`pnpm db:push` in production.** Always `db:generate` → review SQL → `db:migrate`.
 - **Framer Motion / GSAP.** CSS-only animation is the rule. Lighthouse ≥95 is the design budget.
 - **Arbitrary Tailwind values (`text-[#abc]`).** Use the design token or extend `@theme`.

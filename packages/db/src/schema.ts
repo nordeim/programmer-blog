@@ -34,7 +34,7 @@ export const users = sqliteTable('users', {
     .default(sql`(unixepoch())`),
 });
 
-// ── sessions (Better Auth) ──────────────────────────────────────────────────
+// ── sessions (reserved — stateless HMAC auth never reads it; kept for potential future use) ──
 export const sessions = sqliteTable('sessions', {
   id: text('id')
     .primaryKey()

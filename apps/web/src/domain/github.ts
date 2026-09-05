@@ -15,7 +15,7 @@ export interface GitHubRepoStats {
 }
 
 export const FALLBACK_STARS = 82400;
-export const FALLBACK_FORKS = 12400;
+export const FALLBACK_FORKS = 4180;
 export const GITHUB_CACHE_TTL_SECONDS = 60;
 export const GITHUB_INCR_INTERVAL_MS = 9000; // simulated +1 every 9s
 

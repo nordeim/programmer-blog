@@ -2,7 +2,7 @@
   "name": "devlog",
   "private": true,
   "version": "1.0.0",
-  "description": "/dev/log — Notes from a Programmer's Desk. Enterprise-grade programmer blog built with Next.js 16, React 19, Tailwind v4, Drizzle ORM, Better Auth, and Resend.",
+  "description": "/dev/log — Notes from a Programmer's Desk. Enterprise-grade programmer blog built with Next.js 16, React 19, Tailwind v4, Drizzle ORM, homegrown HMAC-SHA256 + scrypt auth (@devlog/auth), and Resend.",
   "packageManager": "pnpm@9.15.4",
   "engines": {
     "node": ">=20.0.0",

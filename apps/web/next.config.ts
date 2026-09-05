@@ -34,7 +34,7 @@ const nextConfig: NextConfig = {
     '@devlog/config',
   ],
 
-  // MDX support for content/posts/*.mdx and content/snippets/*.mdx.
+  // MDX support for content/snippets/*.mdx (posts live in SQLite, not as MDX files — Pass 6 doc sync).
   pageExtensions: ['ts', 'tsx', 'js', 'jsx', 'md', 'mdx'],
 
   images: {
@@ -44,8 +44,8 @@ const nextConfig: NextConfig = {
 
   experimental: {
     // Next.js 16 partial prerendering is now enabled via cacheComponents
-    // (previously experimental.ppr). Disabled for Phase 1; enable in Phase 4
-    // when landing page is fully built.
+    // (previously experimental.ppr). Disabled; enable in Phase 8+ when
+    // landing page is fully built (deferred from original Phase 4 target).
     // cacheComponents: true,
   },
 

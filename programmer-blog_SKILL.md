@@ -63,7 +63,7 @@ tags:
 
 `/dev/log — Notes from a Programmer's Desk` (package name: `devlog`) is a production-grade programmer blog by Alex Rivera. Built as a pnpm + Turborepo monorepo with Next.js 16 App Router, React 19, Tailwind CSS v4 (CSS-first `@theme`), Drizzle ORM + better-sqlite3, the homegrown HMAC auth package `@devlog/auth` (Better Auth removed per ADR-004 amendment, R-2), Resend + React Email, and Vitest.
 
-The repo ships three engineering specs at the root: a [PRD](./Project_Requirements_Document.md) (60+ functional requirements), a [PAD](./Project_Architecture_Document.md) (7 ADRs + 5-layer golden rule), and an [MEP](./Master_Execution_Plan.md) (8-phase TDD roadmap). All code changes trace to an FR-N in the PRD via `Refs: FR-N` commit footers.
+The repo ships three engineering specs at the root: a [PRD](./Project_Requirements_Document.md) (60+ functional requirements), a [PAD](./Project_Architecture_Document.md) (7 ADRs + 5-layer golden rule), and an [MEP](./Master_Execution_Plan.md) (9 phases + Phase 9/9.5 remediation — originally 8-phase, extended via Passes 3–8). All code changes trace to an FR-N in the PRD via `Refs: FR-N` commit footers.
 
 ### 1.2 The Design Thesis
 
@@ -139,7 +139,7 @@ Defined in [`apps/web/src/lib/env.ts`](./apps/web/src/lib/env.ts) via Zod. **Thr
 | `GITHUB_STATS_FALLBACK_STARS` | `z.coerce.number().int()` | `82400` | Used when GitHub API rate-limited. |
 | `GITHUB_STATS_FALLBACK_FORKS` | `z.coerce.number().int()` | `4180` | Used when GitHub API rate-limited. |
 | `CRON_SECRET` | `z.string().optional()` | — | **Reserved** — no cron routes exist yet (R-47 doc sync). |
-| `DEV_AUTHOR_PASSWORD` | `z.string().min(8).optional()` | — | Password for the seeded author. Dev-only override (login-page hint renders in development only, R-37); **production seeds throw without it** (R-57/C-38) — `start_server.sh` generates a strong one. |
+| `DEV_AUTHOR_PASSWORD` | `z.string().min(8).optional()` | — | Password for the seeded author. Dev-only override (login-page hint renders in development only, R-37); **production seeds throw without it or if <16 chars (R-57/C-38 + R-92)** — `start_server.sh` generates a strong one. Zod is intentionally lenient (`min(8)`) — the production guard in `packages/db/src/seed.ts` enforces `≥16`. |
 | `NODE_ENV` | `z.enum(['development','test','production'])` | `development` | Set by Next.js. In production, a localhost `NEXT_PUBLIC_SITE_URL` warns at boot (R-41). |
 
 **Public** (inlined by Next.js, safe in client components):
@@ -201,7 +201,7 @@ pnpm check         # Full quality gate: check-types && lint && test:coverage && 
 | [`apps/web/src/app/globals.css`](./apps/web/src/app/globals.css) | The full `/dev/log` design system. 1:1 port of mockup lines 14-578. | Yes — mockup is the source of truth. |
 | [`packages/config/tailwind/base.css`](./packages/config/tailwind/base.css) | Raw color tokens per `[data-theme="dark\|light\|cyber"]`. | Yes — design budget closed. |
 | [`turbo.json`](./turbo.json) | Turborepo task graph + `globalEnv` for env-aware caching. | Yes — adding a script requires updating `tasks`. |
-| [`pnpm-workspace.yaml`](./pnpm-workspace.yaml) | Declares `apps/*` + `packages/*`; `overrides` (`react-email>next`, `@babel/core 7.29.6` etc.) — modern home for `pnpm.overrides` (warning `pnpm field no longer read` is P1 accepted on 9.15.4). |
+| [`pnpm-workspace.yaml`](./pnpm-workspace.yaml) | Declares `apps/*` + `packages/*`; `overrides` block is **inert on the pinned pnpm 9.15.4** (workspace `overrides` require pnpm ≥10). Live pin is `package.json#pnpm.overrides` (`prismjs ^1.30.0`); `react-email` subtree removed from runtime deps in R-95 (C-42). |
 | [`commitlint.config.mjs`](./commitlint.config.mjs) | Conventional Commits enforcement. | — |
 | [`apps/web/src/proxy.ts`](./apps/web/src/proxy.ts) | Edge `proxy` (replaces `middleware.ts` since 16.3.4, `export async function proxy`). Build errors if both exist. | Yes — `matcher ['/admin/:path*']` |
 | [`apps/web/vitest.config.ts`](./apps/web/vitest.config.ts) | Vitest + jsdom config. | — |
@@ -1470,8 +1470,10 @@ See `apps/web/src/app/layout.tsx:60-97`.
 'use server';
 import 'server-only';
 import { z } from 'zod';
+import { headers } from 'next/headers';
 import { db, schema } from '@/lib/db';
 import { rateLimit } from '@/lib/rate-limit';
+import { getClientIpFromHeaders } from '@/lib/request-ip';
 
 const inputSchema = z.object({
   postId: z.string().min(1, 'postId is required.'),
@@ -1482,10 +1484,7 @@ type Result =
   | { ok: true; commentId: string; message: string }
   | { ok: false; error: string; fieldErrors?: Record<string, string> };
 
-export async function createComment(
-  input: unknown,
-  ctx: { ip?: string } = {},
-): Promise<Result> {
+export async function createComment(input: unknown): Promise<Result> {
   // 1. Validate input (Zod).
   const parsed = inputSchema.safeParse(input);
   if (!parsed.success) {
@@ -1498,8 +1497,15 @@ export async function createComment(
     };
   }
 
-  // 2. Rate limit (sliding window, per-IP).
-  const allowed = await rateLimit(`comment:${ctx.ip ?? parsed.data.postId}`, 10, 3600);
+  // 2. Rate limit (sliding window, per-IP — read server-side from proxy headers ONLY).
+  //    `ctx.ip` was attacker-serializable (R-58/H-39); do not re-introduce it.
+  const headersList = await headers();
+  const clientIp = getClientIpFromHeaders(headersList);
+  const allowed = await rateLimit(
+    clientIp === 'unknown' ? `comment:unknown-${parsed.data.postId}` : `comment:${clientIp}`,
+    10,
+    3600,
+  );
   if (!allowed) {
     return { ok: false, error: 'Too many comments. Try again later.' };
   }
@@ -1946,7 +1952,7 @@ Test on iPhone SE (375×667) and iPad (768×1024) viewports via Chrome DevTools.
 | 100 | `.progress-bar` | `globals.css:109-120` | Top scroll-progress bar |
 | 50 | Skip link (focused) | `apps/web/src/app/layout.tsx:88-92` | Skip-to-content visible on focus |
 | 2 | Hero content wrapper | `apps/web/src/features/landing/hero.tsx:54` | Above float-dot background |
-| 1 | `.mouse-glow` | `globals.css:160-176` | Cursor follow glow (behind content) |
+| 1 | `.mouse-glow` | `globals.css:160-176` + `hero-mouse-glow.tsx` (`useMouseGlow({ track: 'parent' })`, R-79) | Cursor follow glow (behind content). Before R-79 it was dead code on a `pointer-events: none` overlay (M-53) — now parent-tracked. |
 | (default) | All other content | — | Normal flow |
 
 **Conflict resolution:** The skip link (z-50) must always appear above the progress bar (z-100)? Wait — z-100 > z-50, so the progress bar is above the skip link. **This is intentional** — the progress bar is 3px tall and at the very top; the skip link is fixed at `top-2` (8px) so they don't overlap visually. The progress bar (z-100) sits above everything because it should always be visible during scroll.
@@ -2031,7 +2037,7 @@ export interface GitHubRepoStats {
 }
 
 export const FALLBACK_STARS = 82400;
-export const FALLBACK_FORKS = 12400;  // Note: env default differs (4180)
+export const FALLBACK_FORKS = 4180;
 export const GITHUB_CACHE_TTL_SECONDS = 60;
 export const GITHUB_INCR_INTERVAL_MS = 9000;
 
@@ -2226,15 +2232,15 @@ export async function createComment(
 
 See §20.2 above — the `Env` type is the canonical env interface.
 
-### 20.8 Storage Interfaces
+### 20.8 Storage / OG Interfaces
 
-No `r2.ts` or storage layer exists. (Reserved for future OG image generation in Phase 8+.)
+No `r2.ts` storage layer exists. OG images are generated via `next/og` (dynamic `opengraph-image.tsx` per route, added in Pass 2/R-14) — no external R2 bucket. Reserved for future object storage in Phase 8+.
 
 ---
 
 ## Appendix A: ADRs
 
-The PAD documents 7 ADRs. Summary:
+The PAD documents 7 ADRs. Summary (ADR-004 amended — Better Auth removed in R-2):
 
 | ADR | Decision | Rationale |
 |---|---|---|
@@ -2242,7 +2248,7 @@ The PAD documents 7 ADRs. Summary:
 | ADR-002 | Edge-safe auth split (`tokens.ts` vs `index.ts`) | Edge Runtime can't bundle `better-sqlite3`; pure crypto helpers go in `tokens.ts` |
 | ADR-003 | Tailwind v4 CSS-first `@theme` | No `tailwind.config.ts`; tokens in `globals.css`; design budget closed |
 | ADR-004 | Drizzle ORM + better-sqlite3 | SQLite-only; migrations via Drizzle Kit; lazy Proxy client avoids build-time DB opens |
-| ADR-005 | Better Auth (HMAC tokens, not JWT) | Simpler than JWT; `timingSafeEqual` for verification; cookie-based sessions |
+| ADR-005 | Homegrown HMAC auth (HMAC-SHA256 + scrypt, Better Auth removed ADR-004 amendment) | HMAC tokens (not JWT); Web Crypto `crypto.subtle` (`async`, `timingSafeEqualHex`), `SESSION_COOKIE` + 30-day TTL; simpler than JWT |
 | ADR-006 | Resend + React Email | Degrades gracefully without API key; React Email templates render to HTML + text |
 | ADR-007 | Vitest + jsdom over Jest | Native ESM; faster; co-located tests; `react-hooks` v7 ruleset for `set-state-in-effect` |
 
@@ -2258,7 +2264,7 @@ The 6-phase workflow used for every implementation task:
 2. **PLAN** — Pick the MEP phase that owns this work; produce a RED→GREEN→REFACTOR checklist. Present the plan before coding.
 3. **VALIDATE** — Confirm the layer boundaries (§5.1) are respected before writing the first test.
 4. **IMPLEMENT** — Write the failing test first, then the implementation, then refactor. Commit atomically with `Refs: FR-N` footer.
-5. **VERIFY** — `pnpm check-types && pnpm lint && pnpm test && pnpm build` must all be green before push. Never break `main`.
+5. **VERIFY** — `pnpm check` (`check-types && lint && test:coverage && audit --prod && build` — five stages, R-97) must be green before push. Never break `main`.
 6. **DELIVER** — Update this SKILL.md / PRD if the change introduces a new pattern, anti-pattern, or lesson.
 
 ---

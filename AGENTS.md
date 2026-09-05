@@ -1,5 +1,5 @@
 # AGENTS.md
-
+<!-- last_updated: 2026-09-04 (Pass 8) — R-95..R-97: five-stage gate, inert workspace overrides, timing-equalized signIn -->
 Compact instructions for AI coding agents working in `/dev/log`. Read before editing anything.
 
 ## TL;DR
@@ -31,7 +31,7 @@ Compact instructions for AI coding agents working in `/dev/log`. Read before edi
 | Single-package test | `pnpm --filter @devlog/web test` |
 | Fresh-clone prod start (migrate+seed+gate+build+standalone) | `bash start_server.sh` → http://localhost:3000 (canonical https://programmer-blog.jesspete.shop), `server.log`/`server.pid` |
 
-**Required order when verifying a change:** `pnpm check-types` → `pnpm lint` → `pnpm test` → `pnpm build`. `pnpm check` runs all five gate stages (types, lint, coverage, `audit --prod`, build) — every one is release-blocking.
+**Required order when verifying a change:** `pnpm check-types` → `pnpm lint` → `pnpm test:coverage` → `pnpm audit --prod` → `pnpm build`. `pnpm check` runs all five gate stages (types, lint, coverage, `audit --prod`, build) — every one is release-blocking.
 
 > `start_server.sh` runs `check-types+lint+test` before `build`, kills prior `:3000`, sources `.env.local` via `bash set -a; .` (not `source` — `dash` trap), syncs `apps/web/.env.local`, and is re-runnable/idempotent.
 
@@ -95,7 +95,7 @@ A layer may only import from layers *below* it or from its own layer:
 - **`output: 'standalone'`** — build produces `apps/web/.next/standalone/apps/web/server.js`. Start with `node apps/web/.next/standalone/apps/web/server.js` (not `next start`).
 - **MDX is first-class** — `pageExtensions: ['ts','tsx','js','jsx','md','mdx']`.
 - **Content sources (as-built):** blog POSTS live in SQLite (`packages/db/src/seed.ts` seeds them; admin CRUD manages them) and render through `renderMDX`. Only SNIPPETS are MDX files, in `apps/web/content/snippets/*.mdx`. There is no `content/posts/` directory (Pass 6 doc sync, I-9/I-11).
-- **PPR is disabled** (`experimental.cacheComponents` commented out in `next.config.ts`). Enable in Phase 4+ when the landing page is fully built.
+- **PPR is disabled** (`experimental.cacheComponents` commented out in `next.config.ts`). Enable in Phase 8+ when the landing page is fully built (deferred from the original Phase 4 target).
 - **Security headers** are declared inline in `next.config.ts` (CSP, X-Content-Type-Options, X-Frame-Options: DENY, Referrer-Policy, Permissions-Policy, HSTS). Edit there, not in `proxy.ts`.
 
 ## Database — SQLite Only
@@ -184,9 +184,9 @@ The wrapper is Paramiko-based and handles the `shlex.join()` quoting bug that br
 - Commit `.env.local` — it is gitignored and must stay untracked; it was once force-added with real secrets (C-40, R-71). Secrets live in the deploy environment only.
 
 
-## Pass 7 doc sync (R-94, 2026-09-04)
+## Pass 8 doc sync (R-94..R-97, 2026-09-04)
 
-Tiered review + live E2E (Pass 7) remediated C-41, H-40, H-42, M-49..M-55 and L-45..L-56 (R-72..R-93). Contract changes an agent must know:
+Tiered review + live E2E (Pass 7) remediated C-41, H-40, H-42, M-49..M-55 and L-45..L-56 (R-72..R-93); Pass 8 re-verified (R-95..R-97) — `pnpm check` is now a five-stage gate (`audit --prod` included), `react-email` CLI removed from runtime deps (C-42/R-95), `signIn` timing-equalized via dummy scrypt (H-43/R-96). Contract changes an agent must know:
 
 - **Server Action return shape is `{ ok: true/false, … }`** — not the `{ status: … }` shape this file documented before Pass 7.
 - **Empty env var = unset** (R-73). Do not rely on `RESEND_API_KEY=''` failing validation.
